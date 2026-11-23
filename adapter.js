@@ -169,6 +169,8 @@
   const avisarDoc = (col,id) => { (docListeners.get(col+'|'+id) || []).forEach(f => { try { f(snapDoc(col,id)); } catch(e){ console.error(e); } }); };
   const aplicar = (col, id, data) => {
     let m = cache.get(col); if (!m){ m = new Map(); cache.set(col, m); }
+    if (data !== null && m.has(id) && JSON.stringify(m.get(id)) === JSON.stringify(data)) return;
+    if (data === null && !m.has(id)) return;
     if (data === null) m.delete(id); else m.set(id, data);
     avisar(col); avisarDoc(col, id);
   };
@@ -180,7 +182,9 @@
       data.forEach(r => m.set(r.id, r.data));
       if (data.length < passo) break; de += passo;
     }
+    const antes = cache.get(col), mudou = !antes || antes.size !== m.size || [...m].some(([k,v]) => JSON.stringify(antes.get(k)) !== JSON.stringify(v));
     cache.set(col, m); carregadas.add(col);
+    return mudou;
   }
   let canal = null;
   function ligarTempoReal(){
@@ -190,7 +194,7 @@
       else { const n = p.new || {}; if (n.col && n.id) aplicar(n.col, n.id, n.data || {}); }
     }).subscribe();
     /* rede de segurança: se o tempo real cair, recarrega as coleções abertas a cada 30 s */
-    setInterval(() => { [...colListeners.keys()].forEach(c => buscarCol(c).then(() => avisar(c)).catch(() => {})); }, 30000);
+    setInterval(() => { if (document.hidden) return; [...colListeners.keys()].forEach(c => buscarCol(c).then(m => { if (m) avisar(c); }).catch(() => {})); }, 60000);
   }
   const erroDb = e => { const c = e && (e.code || ''); return {code: c === '42501' || /row-level security|permission/i.test((e && e.message) || '') ? 'invalid_argument' : 'unavailable', message: (e && e.message) || 'erro'}; };
   const partes = p => { const s = String(p).split('/'); return {col:s.slice(0,-1).join('/'), id:s[s.length-1]}; };

@@ -3,7 +3,7 @@
 import pathlib, re, sys
 
 SRC = pathlib.Path('/home/user/gases-semeato/index.html')
-OUT = pathlib.Path('/home/user/tracking-gases/web/index.html')
+OUT = pathlib.Path('/home/user/tracking-gases-semeato/index.html')
 s = SRC.read_text()
 
 def rep(a, b, c=1):

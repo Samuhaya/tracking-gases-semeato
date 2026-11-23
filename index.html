@@ -830,6 +830,40 @@ button.gchip[aria-pressed="true"] svg{color:var(--g)}
 .alerta30 ul{flex-direction:column;gap:8px}
 .alerta30 li::before{display:none}
 .alerta30 .btn{align-self:flex-start}
+
+/* ===== Celular: topo em duas linhas e tabelas como cartões ===== */
+@media (max-width:640px){
+  header.top > .wrap{flex-wrap:wrap;row-gap:8px;column-gap:8px;padding-block:8px}
+  .brand{flex:1 1 auto;min-width:0}
+  .brand .ttl{display:none}
+  .plate{height:36px}.plate img{height:32px}
+  .fabsel{order:10;flex:1 1 100%;font-size:13px!important;gap:8px!important;letter-spacing:0;text-transform:none;color:var(--muted)}
+  .fabsel select{flex:1;min-height:36px}
+  .theme button{width:30px;height:30px}
+  .lg-sair{padding:6px 10px!important;font-size:12.5px!important}
+  .tw{overflow:visible;background:transparent;box-shadow:none;border:0}
+  .tw table,.tw tbody,.tw tr,.tw td{display:block;width:100%;min-width:0!important}
+  .tw table.wide{min-width:0}
+  .tw thead{display:none}
+  .tw tr{background:var(--card);border-radius:16px;box-shadow:var(--sh);border:1px solid var(--hair);padding:10px 14px;margin-bottom:10px}
+  .tw tr.late{background:color-mix(in oklab,var(--red-soft) 70%,var(--card))}
+  .tw tr.late td{background:transparent}
+  .tw td{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:7px 0;border-bottom:1px solid var(--hair);text-align:right}
+  .tw td:last-child{border-bottom:0}
+  .tw td::before{content:attr(data-l);color:var(--muted);font-size:12.5px;font-weight:500;text-align:left;flex:0 0 38%;max-width:38%}
+  .tw td[data-l=""]::before{display:none}
+  .tw td > *{text-align:right}
+  .tw td.act{justify-content:flex-end;flex-wrap:wrap;padding-top:10px}
+  .tw td.act .w,.tw td.act{gap:6px}
+  .tw td.act .btn{min-height:40px}
+  .tw td select{max-width:60%}
+  .tw td.act{flex-direction:row!important;flex-wrap:wrap;justify-content:flex-end;align-items:center}
+  .tw td.act > *{flex:0 0 auto}
+  .tw td > *{min-width:0;overflow-wrap:anywhere;word-break:break-word}
+  .tw td .mono{font-size:12px}
+  .tw td:not(.act){flex-wrap:wrap}
+  .tw td:not(.act) > .pill ~ div{flex-basis:100%;text-align:right}
+}
 </style>
 
 <header class="top">
@@ -1226,7 +1260,7 @@ function renderTabs(){
 function tabela(cols, rows, rowCls){
   if (!rows.length) return '';
   return '<div class="tw"><table'+(cols.length > 5 ? ' class="wide"' : '')+'><thead><tr>'+cols.map(c => '<th'+(c.n?' class="n"':'')+'>'+c.h+'</th>').join('')+'</tr></thead><tbody>'+
-    rows.map(r => '<tr'+(rowCls ? ' class="'+(rowCls(r)||'')+'"' : '')+'>'+cols.map(c => '<td'+(c.n?' class="n"':c.act?' class="act"':'')+'>'+c.f(r)+'</td>').join('')+'</tr>').join('')+
+    rows.map(r => '<tr'+(rowCls ? ' class="'+(rowCls(r)||'')+'"' : '')+'>'+cols.map(c => '<td data-l="'+esc(String(c.h).replace(/<[^>]*>/g,''))+'"'+(c.n?' class="n"':c.act?' class="act"':'')+'>'+c.f(r)+'</td>').join('')+'</tr>').join('')+
     '</tbody></table></div>';
 }
 /* aw: html exibido quando vazio (ex.: AW(fid)); sem aw mostra "—" */
