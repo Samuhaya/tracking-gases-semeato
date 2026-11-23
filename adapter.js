@@ -95,6 +95,8 @@
     if (!s) return;
     if (s.user && s.user.user_metadata && s.user.user_metadata.trocarSenha){ telaTrocarSenha(); return; }
     sessao = s; fecharTela(); resolverLogin(s);
+    /* ADM: cria as contas que faltam (senha padrão; troca obrigatória no 1º acesso) */
+    sb.rpc('eh_admin').then(({data}) => { if (data) chamarFuncao({acao:'garantir'}).then(r => { if (r && r.criados && r.criados.length) console.info('Contas criadas:', r.criados.join(', ')); }).catch(() => {}); });
     const h = document.querySelector('header.top > .wrap');
     if (h && !h.querySelector('.lg-sair')){
       const b = document.createElement('button'); b.className = 'lg-sair'; b.type = 'button'; b.textContent = 'Sair';

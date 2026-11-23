@@ -45,7 +45,7 @@ rep('Cada pessoa entra com a conta Claude do e-mail da empresa.', 'Cada pessoa e
 rep("Ninguém da equipe abriu o app ainda. Compartilhe com acesso de <b>Colaborador</b>. Quando a pessoa abrir, ela aparece aqui para você escolher a fábrica dela.",
     "Ninguém da equipe entrou no app ainda. Cadastre as pessoas na aba <a href=\"#usuarios\">Usuários</a>.")
 rep("""<li><b>Compartilhe o app</b> com o mesmo e-mail no botão <b>Compartilhar</b> do Claude: <b>Colaborador</b> para responsável, <b>Editor</b> para ADM.</li><li>A pessoa abre o link. O responsável cai direto na fábrica dele; o ADM vê o painel completo.</li>""",
-    """<li>O app cria a conta e mostra uma <b>senha provisória</b>. Passe para a pessoa junto com o link do app.</li><li>A pessoa entra com e-mail e senha e cria a senha dela. O responsável cai direto na fábrica dele; o ADM vê o painel completo.</li>""")
+    """<li>O app cria a conta com a <b>senha padrão da empresa</b>. Passe o link do app para a pessoa.</li><li>A pessoa entra com e-mail e senha e cria a senha dela. O responsável cai direto na fábrica dele; o ADM vê o painel completo.</li>""")
 rep("""<div class="muted" style="font-size:12px">compartilhe como Editor</div>""", """<div class="muted" style="font-size:12px">conta de ADM</div>""")
 rep("""<div class="muted" style="font-size:12px">compartilhe o app com este e-mail</div>""", """<div class="muted" style="font-size:12px">ainda não entrou</div>""")
 rep("""Ele perde o acesso na próxima vez que você abrir o app. Para tirar o link de vez, remova também no botão Compartilhar.', () => salvarUsuarios(usuariosLista().filter(x => x.email !== id)), 'Remover'); }""",
@@ -57,22 +57,20 @@ rep("Abra o app pelo claude.ai com sua conta da Semeato.", "Verifique a conexão
 # Senha provisória, nova senha
 js = r"""
 /* ---------- CONTAS (senha provisória) ---------- */
-function senhaProvisoria(){ const c = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789'; const a = new Uint32Array(10); crypto.getRandomValues(a); return [...a].map(x => c[x % c.length]).join(''); }
 async function criarConta(email, nome, acao){
-  const senha = senhaProvisoria();
   try {
-    await window.__usuarios({acao, email, senha, nome});
-    abrirModal('<h2>'+(acao === 'criar' ? 'Conta criada' : 'Nova senha criada')+'</h2><p class="muted" style="margin:0">Passe estes dados para a pessoa. No primeiro acesso ela cria a senha dela.</p>'+
-      '<div class="avs2" style="font-size:15px;line-height:1.7">Link: <b>'+esc(LINK_APP)+'</b><br>E-mail: <b>'+esc(email)+'</b><br>Senha provisória: <b class="mono" style="font-size:16px">'+esc(senha)+'</b></div>'+
-      '<div class="tools" style="justify-content:flex-end"><button class="btn" id="cp_ac">Copiar</button><button class="btn pri" data-close>Pronto</button></div>', ov => {
-      ov.querySelector('#cp_ac').addEventListener('click', () => navigator.clipboard.writeText('Tracking Gases Semeato\n'+LINK_APP+'\nE-mail: '+email+'\nSenha provisória: '+senha).then(() => toast('Copiado'), () => toast('Não foi possível copiar', 1)));
+    await window.__usuarios({acao, email, nome});
+    abrirModal('<h2>'+(acao === 'criar' ? 'Conta criada' : 'Senha redefinida')+'</h2><p class="muted" style="margin:0">A pessoa entra com o e-mail e a <b>senha padrão da empresa</b>. No primeiro acesso o app pede para ela criar a senha dela.</p>'+
+      '<div class="avs2" style="font-size:15px;line-height:1.7">Link: <b>'+esc(LINK_APP)+'</b><br>E-mail: <b>'+esc(email)+'</b><br>Senha: a senha padrão</div>'+
+      '<div class="tools" style="justify-content:flex-end"><button class="btn" id="cp_ac">Copiar link e e-mail</button><button class="btn pri" data-close>Pronto</button></div>', ov => {
+      ov.querySelector('#cp_ac').addEventListener('click', () => navigator.clipboard.writeText('Tracking Gases Semeato\n'+LINK_APP+'\nE-mail: '+email+'\nSenha: a senha padrão (o app pede para trocar no primeiro acesso)').then(() => toast('Copiado'), () => toast('Não foi possível copiar', 1)));
     });
   } catch(e){ toast(e.message, 1); }
 }
 """
 rep("/* ---------- USUÁRIOS ---------- */", "/* ---------- USUÁRIOS ---------- */" + js)
 rep("""    {h:'', act:1, f:u => '<button class="btn sm ghost" data-act="usrativo\"""",
-    """    {h:'', act:1, f:u => '<button class="btn sm ghost" data-act="usrsenha" data-id="'+esc(u.email)+'" data-nome="'+esc(u.nome||'')+'">Nova senha</button><button class="btn sm ghost" data-act="usrativo\"""")
+    """    {h:'', act:1, f:u => '<button class="btn sm ghost" data-act="usrsenha" data-id="'+esc(u.email)+'" data-nome="'+esc(u.nome||'')+'">Voltar à senha padrão</button><button class="btn sm ghost" data-act="usrativo\"""")
 rep("""  else if (act === 'usrativo'){""", """  else if (act === 'usrsenha') criarConta(id, b.dataset.nome || '', 'senha');
   else if (act === 'usrativo'){""")
 

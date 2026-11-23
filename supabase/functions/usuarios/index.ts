@@ -15,7 +15,8 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const acao = String(body.acao || "");
     const email = String(body.email || "").trim().toLowerCase();
-    const senha = String(body.senha || "");
+    const PADRAO = Deno.env.get("DEFAULT_SENHA") || "";
+    const senha = String(body.senha || "") || (["criar", "senha", "garantir"].includes(acao) ? PADRAO : "");
     const nome = String(body.nome || "").trim();
     const { data: cfg } = await admin.from("docs").select("data").eq("col", "config").eq("id", "usuarios").maybeSingle();
     const dominio = String(cfg?.data?.dominio || "semeato.com.br").toLowerCase().replace(/^@/, "");
@@ -60,6 +61,23 @@ Deno.serve(async (req) => {
       const { data, error } = await admin.auth.admin.createUser({ email, password: senha, email_confirm: true, user_metadata: { nome, trocarSenha: true } });
       if (error) return json({ erro: /already|registered|exists/i.test(error.message) ? "Este e-mail já tem conta. Use 'Nova senha' para trocar a senha." : error.message }, 400);
       return json({ ok: true, id: data.user?.id });
+    }
+    if (acao === "garantir") {
+      if (PADRAO.length < 8) return json({ erro: "Senha padrão não configurada." }, 500);
+      const existentes = new Set<string>();
+      for (let page = 1; page <= 10; page++) {
+        const { data } = await admin.auth.admin.listUsers({ page, perPage: 200 });
+        (data?.users || []).forEach((x) => { if (x.email) existentes.add(x.email.toLowerCase()); });
+        if (!data || data.users.length < 200) break;
+      }
+      const criados: string[] = [];
+      for (const x of lista) {
+        const e = String(x?.email || "").toLowerCase();
+        if (!e || x?.ativo === false || existentes.has(e) || !e.endsWith("@" + dominio)) continue;
+        const { error } = await admin.auth.admin.createUser({ email: e, password: PADRAO, email_confirm: true, user_metadata: { nome: x?.nome || "", trocarSenha: true } });
+        if (!error) criados.push(e);
+      }
+      return json({ ok: true, criados });
     }
     if (acao === "senha") {
       const v = valida(); if (v) return json({ erro: v }, 400);
