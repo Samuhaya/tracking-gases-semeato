@@ -26,6 +26,8 @@
   .lg-card button.sec{background:transparent;color:#B7241F;font-weight:500;min-height:36px}
   .lg-card button:disabled{opacity:.6}
   .lg-err{color:#B7241F;font-size:13.5px;min-height:1em}
+  .lg-alerta[data-st=on]{color:#1f7a4d}
+  @media (max-width:620px){.lg-alerta{font-size:0!important;padding:6px 8px!important}.lg-alerta svg{margin:0!important}}
   .lg-sair{font:inherit;font-size:13px;font-weight:500;border:0;border-radius:980px;padding:6px 12px;background:var(--surface,#f0f0f3);color:var(--fg,#1d1d1f);cursor:pointer}`;
   document.head.appendChild(css);
   function tela(html, mount){
@@ -98,7 +100,48 @@
       const b = document.createElement('button'); b.className = 'lg-sair'; b.type = 'button'; b.textContent = 'Sair';
       b.addEventListener('click', async () => { await sb.auth.signOut(); location.reload(); });
       h.appendChild(b);
+      ligarBotaoAlertas(h, b);
     }
+  }
+
+  /* ---------------- ALERTAS NO CELULAR (Web Push) ---------------- */
+  const VAPID_PUB = 'BFZFBy72zTox_KRpPuCoZ3-G0Cpdv2GKhlp9mu1REt5x09Hzy55IwZsn5UX7n1NAcYJ2geYtiZlxv7Jwnb5P0m8';
+  const b64u = b => { const p = '='.repeat((4 - b.length % 4) % 4); const r = atob((b + p).replace(/-/g,'+').replace(/_/g,'/')); return Uint8Array.from([...r].map(c => c.charCodeAt(0))); };
+  const hashTxt = t => { let h = 5381; for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) >>> 0; return 'd' + h.toString(16); };
+  const ehIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const instalado = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+  function aviso(msg, erro){
+    const t = document.createElement('div'); t.className = 'toast' + (erro ? ' err' : ''); t.textContent = msg; t.setAttribute('role','status');
+    document.querySelectorAll('.toast').forEach(x => x.remove()); document.body.appendChild(t); setTimeout(() => t.remove(), erro ? 7000 : 3500);
+  }
+  async function estadoPush(){
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return 'sem';
+    try { const reg = await navigator.serviceWorker.ready; const s = await reg.pushManager.getSubscription(); return s && Notification.permission === 'granted' ? 'on' : 'off'; } catch(_) { return 'off'; }
+  }
+  async function ativarPush(){
+    if (ehIOS && !instalado){ aviso('No iPhone: toque em Compartilhar → "Adicionar à Tela de Início", abra o app pelo ícone e ative os alertas ali.', 1); return false; }
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)){ aviso('Este navegador não recebe notificações. Use o Chrome no Android ou o app instalado no iPhone.', 1); return false; }
+    const perm = await Notification.requestPermission();
+    if (perm !== 'granted'){ aviso('Notificações bloqueadas. Libere nas configurações do navegador para este site.', 1); return false; }
+    const reg = await navigator.serviceWorker.ready;
+    const sub = (await reg.pushManager.getSubscription()) || (await reg.pushManager.subscribe({userVisibleOnly:true, applicationServerKey:b64u(VAPID_PUB)}));
+    const j = sub.toJSON();
+    try { await docRef('registros/' + sessao.user.id + '/push/' + hashTxt(j.endpoint)).set({sub:j, aparelho:navigator.userAgent.slice(0,140), criadoEm:new Date().toISOString()}); }
+    catch(e){ aviso(e && e.code === 'invalid_argument' ? 'Fora do horário de uso: ative os alertas entre 7:30 e 18:00.' : 'Não foi possível ativar agora. Tente de novo.', 1); return false; }
+    reg.showNotification('Alertas ativados', {body:'Você vai receber um aviso quando um tanque cair abaixo de 30%.', icon:'icon-192.png', tag:'ativado'});
+    return true;
+  }
+  async function ligarBotaoAlertas(h, antes){
+    const b = document.createElement('button'); b.className = 'lg-sair lg-alerta'; b.type = 'button';
+    const sino = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="vertical-align:-2px;margin-right:5px"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></svg>';
+    const pintar = st => { b.innerHTML = sino + (st === 'on' ? 'Alertas ligados' : 'Ativar alertas'); b.dataset.st = st; b.hidden = st === 'sem' && !ehIOS; };
+    pintar(await estadoPush());
+    b.addEventListener('click', async () => {
+      if (b.dataset.st === 'on'){ aviso('Os alertas já estão ligados neste aparelho.'); return; }
+      b.disabled = true; const ok = await ativarPush().catch(() => false); b.disabled = false;
+      pintar(ok ? 'on' : await estadoPush());
+    });
+    h.insertBefore(b, antes);
   }
   (async () => {
     const {data:{session}} = await sb.auth.getSession();
