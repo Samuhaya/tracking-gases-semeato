@@ -4,6 +4,20 @@ import webpush from "npm:web-push@3.6.7";
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
 const SITE = "https://samuhaya.github.io/tracking-gases-semeato/";
+
+/* Medidor em polegadas (tanques criogênicos): converte para % pela tabela ou pela leitura de tanque cheio */
+function polParaPct(t: any, pol: number): number | null {
+  const pts: number[][] = [];
+  String(t?.tabelaPol || "").split(/[;\n]+/).forEach((x) => { const m = x.replace(/,/g, ".").match(/(-?[\d.]+)\s*[:=]\s*(-?[\d.]+)/); if (m) pts.push([Number(m[1]), Number(m[2])]); });
+  let p = pts.sort((a, b) => a[0] - b[0]);
+  if (p.length < 2 && Number(t?.polCheio) > 0) p = [[0, 0], [Number(t.polCheio), 100]];
+  if (p.length < 2 || isNaN(pol)) return null;
+  if (pol <= p[0][0]) return Math.max(0, p[0][1]);
+  for (let i = 1; i < p.length; i++) { const [x0, y0] = p[i - 1], [x1, y1] = p[i]; if (pol <= x1) return Math.min(100, Math.max(0, y0 + (y1 - y0) * (pol - x0) / ((x1 - x0) || 1))); }
+  const [xa, ya] = p[p.length - 2], [xb, yb] = p[p.length - 1];
+  return Math.min(100, Math.max(0, yb + (yb - ya) * (pol - xb) / ((xb - xa) || 1)));
+}
+
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { "Content-Type": "application/json" } });
 
 Deno.serve(async (req) => {
@@ -20,8 +34,9 @@ Deno.serve(async (req) => {
     for (const t of tanques) {
       const d = t.data || {};
       if (d.exemplo) continue;
-      const n = Number(d.nivel);
-      if (d.nivel === "" || d.nivel === null || isNaN(n)) continue;
+      let n = Number(d.nivel);
+      if ((d.nivel === "" || d.nivel === null || d.nivel === undefined || isNaN(n)) && d.nivelPol !== "" && d.nivelPol !== null && d.nivelPol !== undefined) n = polParaPct(d, Number(d.nivelPol));
+      if (n === null || isNaN(n)) continue;
       if (n < 30) { if (!avisados[t.id]) novos.push({ id: t.id, ...d, n }); }
       else delete avisados[t.id];
     }

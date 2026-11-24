@@ -1019,6 +1019,9 @@ const SCHEMA = {
     {k:'capacidade',l:'Capacidade (ex.: 10.000 L, 190 kg)',t:'text',copa:1},
     {k:'modelo',l:'Tamanho/modelo',t:'text',copa:1},
     {k:'nivel',l:'Nível atual (%)',t:'number'},
+    {k:'unidadeLeitura',l:'Medidor mostra (vazio = automático: polegadas para O₂, Ar e N₂)',t:'select',opts:[['%','Porcentagem (%)'],['pol','Polegadas']],full:1},
+    {k:'polCheio',l:'Leitura com o tanque cheio (polegadas)',t:'number'},
+    {k:'tabelaPol',l:'Tabela de conversão polegadas → % (opcional, da White Martins; ex.: 0:0; 20:15; 40:35; 60:60; 80:85; 92:100)',t:'textarea',full:1},
     {k:'ultimaLeitura',l:'Data da última leitura',t:'date'},
   ]},
   slas:{titulo:'Prazo contratual', campos:[
@@ -1221,6 +1224,7 @@ function camposPendentes(){
     SCHEMA[col].campos.filter(f => f.copa).forEach(f => {
       if (vazio(r[f.k])) out.push({fid, grupo:SCHEMA[col].titulo+': '+rotulo(col,r), item:f.l, col, id:r.id, exemplo:r.exemplo});
     });
+    if (col === 'tanques' && ehPol(r) && pontosPol(r).length < 2) out.push({fid, grupo:'Tanque: '+rotulo(col,r), item:'Polegadas do tanque cheio ou tabela de conversão polegadas → %', col, id:r.id, exemplo:r.exemplo});
     if (col === 'contratos' && !(r.anexos||[]).length) out.push({fid, grupo:'Contrato: '+rotulo(col,r), item:'PDF do contrato e propostas (anexos)', col, id:r.id});
   }));
   return out;
@@ -1401,7 +1405,7 @@ function vGasto(){
 function cardTanque(t){
   const n = vazio(t.nivel) ? null : Math.max(0, Math.min(100, Number(t.nivel)));
   const low = n !== null && n < 30, fid = fornDeGas(t.gasId);
-  return '<div class="tank'+(low?' low':'')+'"><div class="hd">'+gchip(t.gasId)+'<span class="pct">'+(n===null?'—':nf(n)+'%')+'</span></div>'+
+  return '<div class="tank'+(low?' low':'')+'"><div class="hd">'+gchip(t.gasId)+'<span class="pct">'+(n===null ? (ehPol(t) && !vazio(t.nivelPol) ? nf(t.nivelPol,1)+' pol' : '—') : nf(n)+'%')+'</span></div>'+(ehPol(t) ? '<div class="muted" style="font-size:12.5px;margin-top:-6px">Medidor em polegadas'+(!vazio(t.nivelPol) ? ': '+nf(t.nivelPol,1)+' pol' : '')+(pontosPol(t).length < 2 ? ' · <span class="await">conversão para % aguardando '+esc(nomeForn(fornDeGas(t.gasId)))+'</span>' : '')+'</div>' : '')+
     '<div class="body">'+tanqueSvg(t, n, low)+'<div style="min-width:0;display:flex;flex-direction:column;gap:8px"><div class="mono">'+(t.codigo ? esc(t.codigo) : AW(fid))+EX(t)+'</div>'+
     (fotoViva(t.fotoId, t.ultimaLeitura) ? '<button class="thumb" data-act="hist" data-id="'+t.id+'" aria-label="Ver foto e histórico de leituras"><img src="'+blobSrc(t.fotoId)+'" alt="Foto da última leitura" loading="lazy"><span>Foto da leitura de '+fdata(t.ultimaLeitura)+'</span></button>' : '')+
     '<dl class="kv"><dt>Fábrica</dt><dd>'+fchip(t.unidadeId)+'</dd><dt>Fornecedor</dt><dd>'+esc(nomeForn(fid))+'</dd>'+
@@ -1416,28 +1420,66 @@ function vTanques(){
 }
 
 
+
+/* ---------- LEITURA EM POLEGADAS (tanques criogênicos da White Martins) ---------- */
+const ehPol = t => !!t && (t.unidadeLeitura ? t.unidadeLeitura === 'pol' : criogenico(t.gasId));
+function pontosPol(t){
+  const pts = [];
+  String((t && t.tabelaPol) || '').split(/[;\n]+/).forEach(x => { const m = x.replace(/,/g,'.').match(/(-?[\d.]+)\s*[:=]\s*(-?[\d.]+)/); if (m) pts.push([Number(m[1]), Number(m[2])]); });
+  if (pts.length < 2 && t && Number(t.polCheio) > 0) return [[0,0],[Number(t.polCheio),100]];
+  return pts.sort((a,b) => a[0]-b[0]);
+}
+function polParaPct(t, pol){
+  const pts = pontosPol(t); if (pts.length < 2 || pol === null || pol === '' || isNaN(pol)) return null;
+  pol = Number(pol);
+  if (pol <= pts[0][0]) return Math.max(0, pts[0][1]);
+  for (let i = 1; i < pts.length; i++){ const [x0,y0] = pts[i-1], [x1,y1] = pts[i]; if (pol <= x1) return Math.min(100, Math.max(0, y0 + (y1-y0)*(pol-x0)/((x1-x0)||1))); }
+  const [xa,ya] = pts[pts.length-2], [xb,yb] = pts[pts.length-1];
+  return Math.min(100, Math.max(0, yb + (yb-ya)*(pol-xb)/((xb-xa)||1)));
+}
+function pctDe(t, l){
+  if (l && !vazio(l.nivelPol) && ehPol(t)){ const p = polParaPct(t, Number(l.nivelPol)); return p === null ? null : Math.round(p*10)/10; }
+  return (!l || vazio(l.nivel)) ? null : Number(l.nivel);
+}
+function txtNivel(t, l){
+  const pct = pctDe(t, l), pol = l && !vazio(l.nivelPol) ? Number(l.nivelPol) : null;
+  if (pol !== null && ehPol(t)) return nf(pol,1)+' pol'+(pct !== null ? ' <span class="muted" style="font-weight:500">≈ '+nf(pct)+'%</span>' : ' <span class="await" style="font-size:11px">% aguardando '+esc(nomeForn(fornDeGas(t.gasId)))+'</span>');
+  return pct === null ? '—' : nf(pct)+'%';
+}
+function lerEntrada(t, txt){
+  const v = (txt === undefined || txt === null || txt === '') ? NaN : Number(String(txt).replace(',','.'));
+  if (ehPol(t)){
+    if (isNaN(v) || v < 0 || v > 400) return {erro:'Informe a leitura do medidor em polegadas.'};
+    const pct = polParaPct(t, v);
+    return {nivel: pct === null ? '' : Math.round(pct*10)/10, nivelPol: v};
+  }
+  if (isNaN(v) || v < 0 || v > 100) return {erro:'Informe o nível entre 0 e 100%.'};
+  return {nivel: v, nivelPol: ''};
+}
+
 /* ---------- ATUALIZAR TANQUES (ronda de leitura) ---------- */
 const pendL = {};
 const CAM = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l1.6-2.4h6.8L17 8h3v11H4Z"/><circle cx="12" cy="13.2" r="3.6"/></svg>';
-async function gravarLeitura(t, nivel, data, arq, obs){
+async function gravarLeitura(t, nivel, data, arq, obs, nivelPol){
+  nivelPol = vazio(nivelPol) ? '' : Number(nivelPol);
   let fotoId = '';
   if (arq){ const c = await comprimir(arq); fotoId = (await assets.upload(c.blob, {type:c.type})).id; }
-  await db.collection('leituras').add({tanqueId:t.id, nivel, data, fotoId, obs:obs||'', exemplo:false});
-  if (!t.ultimaLeitura || data >= t.ultimaLeitura) await db.collection('tanques').doc(t.id).update({nivel, ultimaLeitura:data, fotoId});
+  await db.collection('leituras').add({tanqueId:t.id, nivel, nivelPol, data, fotoId, obs:obs||'', exemplo:false});
+  if (!t.ultimaLeitura || data >= t.ultimaLeitura) await db.collection('tanques').doc(t.id).update({nivel, nivelPol, ultimaLeitura:data, fotoId});
 }
 async function salvarRonda(id){
   const t = byId('tanques', id); if (!t) return;
   const p = pendL[id] || {};
-  const nivel = (p.nivel === undefined || p.nivel === '') ? NaN : Number(String(p.nivel).replace(',','.'));
-  if (isNaN(nivel) || nivel < 0 || nivel > 100){ toast('Informe o nível entre 0 e 100%.', 1); const i = document.querySelector('[data-rn="'+id+'"]'); i && i.focus(); return; }
+  const ent = lerEntrada(t, p.nivel), nivel = ent.nivel, nivelPol = ent.nivelPol;
+  if (ent.erro){ toast(ent.erro, 1); const i = document.querySelector('[data-rn="'+id+'"]'); i && i.focus(); return; }
   if (!p.file){ toast('A foto do medidor é obrigatória. Tire a foto antes de enviar.', 1); return; }
   p.saving = true; pendL[id] = p; render();
   try {
-    if (ehAdm()) await gravarLeitura(t, nivel, HOJE, p.file, '');
-    else await enviarItem({tipo:'leitura', tanqueId:t.id, nivel, obs:''}, p.file);
+    if (ehAdm()) await gravarLeitura(t, nivel, HOJE, p.file, '', nivelPol);
+    else await enviarItem({tipo:'leitura', tanqueId:t.id, nivel, nivelPol, obs:''}, p.file);
     if (p.url) URL.revokeObjectURL(p.url);
     delete pendL[id];
-    toast(nomeGas(t.gasId)+' · '+nomeUni(t.unidadeId)+': '+nf(nivel)+'% '+(ehAdm() ? 'salvo' : 'enviado para aprovação'));
+    toast(nomeGas(t.gasId)+' · '+nomeUni(t.unidadeId)+': '+(ehPol(t) ? nf(nivelPol,1)+' pol' : nf(nivel)+'%')+' '+(ehAdm() ? 'salvo' : 'enviado para aprovação'));
   } catch(err){
     p.saving = false; render();
     if (!ehAdm()) erroEnvio(err);
@@ -1458,9 +1500,9 @@ function vLeituras(){
     const n = vazio(t.nivel) ? null : Number(t.nivel), low = n !== null && n < 30, hoje = t.ultimaLeitura === HOJE;
     return '<div class="rrow panel'+(low?' low':'')+(hoje?' done':'')+'">'+tanqueSvg(t, n, low)+
       '<div class="info"><div class="ln">'+fchip(t.unidadeId)+gchip(t.gasId)+'<span class="mono muted">'+esc(t.codigo || 'sem código')+'</span>'+EX(t)+'</div>'+
-      '<div class="muted" style="font-size:13px">Última leitura: '+(n === null ? 'nenhuma' : '<b class="num" style="color:'+(low?'var(--red-ink)':'var(--fg)')+'">'+nf(n)+'%</b>'+(t.ultimaLeitura ? ' em '+fdata(t.ultimaLeitura) : ''))+
+      '<div class="muted" style="font-size:13px">Última leitura: '+(n === null && vazio(t.nivelPol) ? 'nenhuma' : '<b class="num" style="color:'+(low?'var(--red-ink)':'var(--fg)')+'">'+txtNivel(t, t)+'</b>'+(t.ultimaLeitura ? ' em '+fdata(t.ultimaLeitura) : ''))+
       (hoje ? ' <span class="pill open">Lido hoje</span>' : '')+(t.fotoId ? ' · <button class="linkbtn" data-act="hist" data-id="'+t.id+'">ver fotos</button>' : '')+'</div></div>'+
-      '<div class="ent"><label class="pctin"><input type="text" inputmode="decimal" placeholder="Nível" data-rn="'+t.id+'" value="'+esc(p.nivel ?? '')+'" aria-label="Novo nível de '+esc(nomeGas(t.gasId)+' '+nomeUni(t.unidadeId))+' em %"><span>%</span></label>'+
+      '<div class="ent"><label class="pctin"><input type="text" inputmode="decimal" placeholder="'+(ehPol(t) ? 'Polegadas' : 'Nível')+'" data-rn="'+t.id+'" value="'+esc(p.nivel ?? '')+'" aria-label="Leitura de '+esc(nomeGas(t.gasId)+' '+nomeUni(t.unidadeId))+' em '+(ehPol(t) ? 'polegadas' : '%')+'"><span>'+(ehPol(t) ? 'pol' : '%')+'</span></label>'+
       (meuEnvioHoje(t) ? '<span class="pill warn" style="align-self:center">Enviado hoje: '+nf(meuEnvioHoje(t).nivel)+'% · '+ST_TXT[statusItem(meuEnvioHoje(t))].toLowerCase()+'</span>' : '')+
       (assets ? '<label class="btn sm fotobtn'+(p.url?' has':'')+'" for="rf_'+t.id+'">'+(p.url ? '<img class="pv" src="'+p.url+'" alt="Prévia da foto">Trocar' : CAM+'Foto')+'</label><input type="file" id="rf_'+t.id+'" data-rf="'+t.id+'" accept="image/*" capture="environment" hidden>' : '')+
       '<button class="btn sm pri" data-act="rsave" data-id="'+t.id+'"'+(p.saving||!assets?' disabled':'')+'>'+(p.saving ? 'Enviando…' : ehAdm() ? 'Salvar' : 'Enviar')+'</button></div></div>';
@@ -1468,7 +1510,7 @@ function vLeituras(){
   const recentes = S.leituras.slice().sort((a,b) => (b.data||'').localeCompare(a.data||'')).filter(l => { const t = byId('tanques', l.tanqueId); return t && fabOk(t); }).slice(0, 12);
   const recHtml = recentes.length ? '<div class="fotos">'+recentes.map(l => { const t = byId('tanques', l.tanqueId);
     return '<div class="foto panel">'+(fotoViva(l.fotoId, l.data) ? '<a href="'+blobSrc(l.fotoId)+'" target="_blank" rel="noopener"><img src="'+blobSrc(l.fotoId)+'" alt="Foto do medidor, '+esc(nomeGas(t.gasId))+' '+esc(nomeUni(t.unidadeId))+'" loading="lazy"></a>' : '<div class="nofoto">'+(l.fotoId ? 'foto apagada após '+DIAS_FOTO+' dias' : 'sem foto')+'</div>')+
-      '<div class="cap2">'+gchip(t.gasId)+'<b class="num"'+(l.nivel<30?' style="color:var(--red-ink)"':'')+'>'+nf(l.nivel)+'%</b></div><div class="muted" style="font-size:12.5px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">'+fchip(t.unidadeId)+fdata(l.data)+EX(l)+'</div></div>'; }).join('')+'</div>'
+      '<div class="cap2">'+gchip(t.gasId)+'<b class="num"'+(!vazio(l.nivel) && l.nivel<30?' style="color:var(--red-ink)"':'')+'>'+txtNivel(t, l)+'</b></div><div class="muted" style="font-size:12.5px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">'+fchip(t.unidadeId)+fdata(l.data)+EX(l)+'</div></div>'; }).join('')+'</div>'
     : '<div class="empty">As leituras salvas aparecem aqui com a foto do medidor.</div>';
   return '<section class="sec"><div class="sec-h"><div><h2>Atualizar tanques</h2><p class="muted" style="margin:4px 0 0;max-width:62ch">'+(ehAdm() ? 'Escolha a fábrica. Para' : 'Para')+' cada tanque, digite o nível que o medidor mostra, tire a foto e toque em '+(ehAdm() ? 'Salvar' : 'Enviar')+'. '+(ehAdm() ? 'Como ADM, sua leitura vale na hora.' : 'A leitura só é aceita com foto e passa pela aprovação do ADM.')+'</p></div></div>'+seg+'</section>'+
     alertaBaixos()+
@@ -1619,7 +1661,7 @@ function statusItem(i){
   if (papel === 'adm' && i._uid !== meuId){ const m = membros()[i._uid]; if (!m || !m.fabricaId || fabDoItem(i) !== m.fabricaId) return 'forafab'; }
   const a = byId('aprovacoes', chaveAprov(i));
   if (!a) return 'pendente';
-  if (a.status === 'aprovado' && i.tipo === 'leitura' && (Number(a.nivel) !== Number(i.nivel) || a.fotoId !== i.fotoId)) return 'alterado';
+  if (a.status === 'aprovado' && i.tipo === 'leitura' && (String(a.nivel ?? '') !== String(i.nivel ?? '') || String(a.nivelPol ?? '') !== String(i.nivelPol ?? '') || a.fotoId !== i.fotoId)) return 'alterado';
   return a.status;
 }
 const ST_TXT = {pendente:'Aguardando aprovação', aprovado:'Aprovado', rejeitado:'Rejeitado', visto:'Visto pelo ADM', semfoto:'Inválido: sem foto', alterado:'Alterado após aprovação', forafab:'Inválido: fora da fábrica do responsável'};
@@ -1630,13 +1672,16 @@ const meusItens = () => S.itens.filter(i => i._uid === meuId);
 function derivar(){
   const aprov = S.itens.filter(i => i.tipo === 'leitura' && statusItem(i) === 'aprovado').map(i => {
     const a = byId('aprovacoes', chaveAprov(i));
-    return {id:'op~'+chaveAprov(i), tanqueId:i.tanqueId, nivel:Number(a.nivel), data:i.data, fotoId:a.fotoId, obs:i.obs||'', autor:i._uid, _op:true};
+    return {id:'op~'+chaveAprov(i), tanqueId:i.tanqueId, nivel:vazio(a.nivel) ? '' : Number(a.nivel), nivelPol:vazio(i.nivelPol) ? '' : Number(i.nivelPol), data:i.data, fotoId:a.fotoId, obs:i.obs||'', autor:i._uid, _op:true};
   });
-  S.leituras = S._leituras.concat(aprov);
+  const tq = id => S._tanques.find(x => x.id === id);
+  const norm = l => { const t = tq(l.tanqueId); if (!t || vazio(l.nivelPol) || !ehPol(t)) return l; const p = pctDe(t, l); return {...l, nivel: p === null ? '' : p}; };
+  S.leituras = S._leituras.concat(aprov).map(norm);
   S.tanques = S._tanques.map(t => {
     let best = null;
     for (const l of S.leituras) if (l.tanqueId === t.id && l.data && (!best || l.data > best.data || (l.data === best.data && l._op))) best = l;
-    if (best && (!t.ultimaLeitura || best.data >= t.ultimaLeitura)) return {...t, nivel:best.nivel, ultimaLeitura:best.data, fotoId:best.fotoId || t.fotoId};
+    if (best && (!t.ultimaLeitura || best.data >= t.ultimaLeitura)) return {...t, nivel:best.nivel, nivelPol: vazio(best.nivelPol) ? '' : best.nivelPol, ultimaLeitura:best.data, fotoId:best.fotoId || t.fotoId};
+    if (!vazio(t.nivelPol) && ehPol(t)){ const p = pctDe(t, t); return {...t, nivel: p === null ? '' : p}; }
     return t;
   });
 }
@@ -1669,10 +1714,10 @@ function erroEnvio(err){
 }
 async function decidir(i, status, motivo){
   const em = new Date().toISOString();
-  await db.collection('aprovacoes').doc(chaveAprov(i)).set({status, nivel: i.nivel ?? null, fotoId: i.fotoId || '', motivo: motivo || '', em, por: meuId || '', exemplo:false});
+  await db.collection('aprovacoes').doc(chaveAprov(i)).set({status, nivel: i.nivel ?? null, nivelPol: i.nivelPol ?? '', fotoId: i.fotoId || '', motivo: motivo || '', em, por: meuId || '', exemplo:false});
   if (status === 'aprovado' && i.tipo === 'leitura'){
     const t = S._tanques.find(x => x.id === i.tanqueId);
-    if (t && (!t.ultimaLeitura || (i.data||'') >= t.ultimaLeitura)) await db.collection('tanques').doc(t.id).update({nivel:Number(i.nivel), ultimaLeitura:i.data, fotoId:i.fotoId||''}).catch(() => {});
+    if (t && (!t.ultimaLeitura || (i.data||'') >= t.ultimaLeitura)) await db.collection('tanques').doc(t.id).update({nivel:(p => p === null ? '' : p)(pctDe(t, i)), nivelPol: vazio(i.nivelPol) ? '' : Number(i.nivelPol), ultimaLeitura:i.data, fotoId:i.fotoId||''}).catch(() => {});
   }
   if (i._uid !== meuId) await db.doc('registros/'+i._uid+'/decisoes/'+i.id).set({status, nivel: i.nivel ?? null, fotoId: i.fotoId || '', motivo: motivo || '', em}).catch(() => {});
 }
@@ -1686,15 +1731,15 @@ function nivelAnterior(i){
 function vCentral(){
   const {leit, avisos} = filaCentral();
   const cardLeit = i => {
-    const t = byId('tanques', i.tanqueId), ant = nivelAnterior(i), n = Number(i.nivel), st = statusItem(i);
+    const t = byId('tanques', i.tanqueId), ant = nivelAnterior(i), n = t ? pctDe(t, i) : (vazio(i.nivel) ? null : Number(i.nivel)), st = statusItem(i);
     const alertas = [];
-    if (ant && n > ant.nivel + 5) alertas.push('O nível subiu de '+nf(ant.nivel)+'% para '+nf(n)+'%. Confirme se houve abastecimento.');
-    if (ant && ant.data && i.data && diff(ant.data, i.data) > 0 && (ant.nivel - n)/diff(ant.data, i.data) > 15) alertas.push('Queda muito rápida desde a última leitura.');
+    if (ant && n !== null && !vazio(ant.nivel) && n > ant.nivel + 5) alertas.push('O nível subiu de '+nf(ant.nivel)+'% para '+nf(n)+'%. Confirme se houve abastecimento.');
+    if (ant && n !== null && !vazio(ant.nivel) && ant.data && i.data && diff(ant.data, i.data) > 0 && (ant.nivel - n)/diff(ant.data, i.data) > 15) alertas.push('Queda muito rápida desde a última leitura.');
     if (st === 'alterado') alertas.push('O operador alterou este envio depois da sua aprovação.');
     return '<div class="rev panel">'+
       '<a class="ph" href="'+blobSrc(i.fotoId)+'" target="_blank" rel="noopener"><img src="'+blobSrc(i.fotoId)+'" alt="Foto do medidor enviada por '+esc(pessoa(i._uid))+'" loading="lazy"></a>'+
       '<div class="bd"><div class="ln">'+(t ? fchip(t.unidadeId)+gchip(t.gasId)+'<span class="mono muted">'+esc(t.codigo||'')+'</span>' : '<span class="muted">Tanque removido</span>')+'</div>'+
-      '<div class="big2"><b class="num"'+(n<30?' style="color:var(--red-ink)"':'')+'>'+nf(n)+'%</b>'+(ant ? '<span class="muted">antes: '+nf(ant.nivel)+'% em '+fdata(ant.data)+'</span>' : '<span class="muted">primeira leitura deste tanque</span>')+'</div>'+
+      '<div class="big2"><b class="num"'+(n !== null && n<30?' style="color:var(--red-ink)"':'')+'>'+(t ? txtNivel(t, i) : nf(i.nivel)+'%')+'</b>'+(ant ? '<span class="muted">antes: '+(t ? txtNivel(t, ant) : nf(ant.nivel)+'%')+' em '+fdata(ant.data)+'</span>' : '<span class="muted">primeira leitura deste tanque</span>')+'</div>'+
       (alertas.length ? '<ul class="avs">'+alertas.map(a => '<li>'+esc(a)+'</li>').join('')+'</ul>' : '')+
       (i.obs ? '<p class="obs">'+esc(i.obs)+'</p>' : '')+
       '<div class="muted meta">Enviado por <b>'+esc(pessoa(i._uid))+'</b> · '+fdh(i.criadoEm)+' · leitura de '+fdata(i.data)+'</div>'+
@@ -1792,7 +1837,7 @@ function vMeus(){
     (its.length ? '<div class="fotos">'+its.map(i => {
       const t = i.tanqueId ? byId('tanques', i.tanqueId) : null, a = byId('aprovacoes', chaveAprov(i));
       return '<div class="foto panel">'+(fotoViva(i.fotoId, i.data) ? '<a href="'+blobSrc(i.fotoId)+'" target="_blank" rel="noopener"><img src="'+blobSrc(i.fotoId)+'" alt="Foto enviada" loading="lazy"></a>' : '<div class="nofoto">'+(i.fotoId ? 'foto apagada após '+DIAS_FOTO+' dias' : 'sem foto')+'</div>')+
-        '<div class="cap2">'+(t ? gchip(t.gasId) : '<span class="pill">'+esc(CAT_TXT[i.categoria]||'Aviso')+'</span>')+(i.tipo==='leitura' ? '<b class="num">'+nf(i.nivel)+'%</b>' : '')+'</div>'+
+        '<div class="cap2">'+(t ? gchip(t.gasId) : '<span class="pill">'+esc(CAT_TXT[i.categoria]||'Aviso')+'</span>')+(i.tipo==='leitura' ? '<b class="num">'+(t ? txtNivel(t, i) : nf(i.nivel)+'%')+'</b>' : '')+'</div>'+
         '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:12.5px" class="muted">'+(t ? fchip(t.unidadeId) : i.unidadeId ? fchip(i.unidadeId) : '')+fdh(i.criadoEm)+'</div>'+
         stPill(i)+(a && a.motivo ? '<div style="font-size:12.5px;color:var(--red-ink)">Motivo: '+esc(a.motivo)+'</div>' : '')+(i.tipo==='aviso' && i.texto ? '<div class="muted" style="font-size:12.5px">'+esc(i.texto)+'</div>' : '')+'</div>';
     }).join('')+'</div>' : '<div class="empty">Você ainda não enviou nada. Comece em "Atualizar tanques".</div>');
@@ -2722,7 +2767,7 @@ function abrirLeitura(id){
   const t = byId('tanques', id); if (!t) return;
   const fotoOk = !!assets;
   abrirModal('<h2>Registrar leitura</h2><p class="muted" style="margin:0">'+esc(rotulo('tanques',t))+'</p>'+
-    '<form id="fl"><label class="f">Nível atual (%) *<input id="l_nivel" type="number" inputmode="decimal" min="0" max="100" step="any" required value="'+esc(t.nivel??'')+'"></label>'+
+    '<form id="fl"><label class="f">'+(ehPol(t) ? 'Leitura do medidor (polegadas) *' : 'Nível atual (%) *')+'<input id="l_nivel" type="text" inputmode="decimal" required value="'+esc(ehPol(t) ? (t.nivelPol ?? '') : (t.nivel ?? ''))+'"></label>'+
     '<label class="f">Data da leitura *<input id="l_data" type="date" required value="'+HOJE+'"></label>'+
     (fotoOk ? '<div class="f full">Foto do medidor *<label class="btn" for="l_foto" style="text-align:center">Tirar ou escolher foto</label><input id="l_foto" type="file" accept="image/*" capture="environment" hidden><img id="l_prev" alt="Prévia da foto" hidden style="max-height:240px;object-fit:contain;border:1px solid var(--line);margin-top:6px"></div>'
       : '<p class="full muted" style="margin:0">Sua conta não pode enviar fotos neste app. A leitura será salva sem foto.</p>')+
@@ -2737,16 +2782,16 @@ function abrirLeitura(id){
     });
     ov.querySelector('#fl').addEventListener('submit', async ev => {
       ev.preventDefault(); const f = ev.target; if (!f.checkValidity()){ f.reportValidity(); return; }
-      const nivel = Number(f.querySelector('#l_nivel').value), data = f.querySelector('#l_data').value;
-      if (nivel < 0 || nivel > 100){ toast('O nível deve ficar entre 0 e 100%.', 1); return; }
+      const ent = lerEntrada(t, f.querySelector('#l_nivel').value), nivel = ent.nivel, nivelPol = ent.nivelPol, data = f.querySelector('#l_data').value;
+      if (ent.erro){ toast(ent.erro, 1); return; }
       const arq = inp && inp.files && inp.files[0];
       if (!arq){ toast('A foto do medidor é obrigatória.', 1); return; }
       const btn = f.querySelector('button.pri'); btn.disabled = true; btn.textContent = arq ? 'Enviando foto…' : 'Salvando…';
       try {
         let fotoId = '';
         if (arq){ const c = await comprimir(arq); fotoId = (await assets.upload(c.blob, {type:c.type})).id; }
-        await db.collection('leituras').add({tanqueId:t.id, nivel, data, fotoId, obs:f.querySelector('#l_obs').value.trim(), exemplo:false});
-        if (!t.ultimaLeitura || data >= t.ultimaLeitura) await db.collection('tanques').doc(t.id).update({nivel, ultimaLeitura:data, fotoId});
+        await db.collection('leituras').add({tanqueId:t.id, nivel, nivelPol, data, fotoId, obs:f.querySelector('#l_obs').value.trim(), exemplo:false});
+        if (!t.ultimaLeitura || data >= t.ultimaLeitura) await db.collection('tanques').doc(t.id).update({nivel, nivelPol, ultimaLeitura:data, fotoId});
         if (url) URL.revokeObjectURL(url);
         fecharModal(); toast('Leitura registrada');
       } catch(err){
@@ -2762,7 +2807,7 @@ function abrirHistorico(id){
   const ls = S.leituras.filter(l => l.tanqueId === id).sort((a,b) => (b.data||'').localeCompare(a.data||''));
   abrirModal('<h2>Histórico de leituras</h2><p class="muted" style="margin:0">'+esc(rotulo('tanques',t))+'</p>'+
     (ls.length ? '<div class="list">'+ls.map(l =>
-      '<div class="pend"><div class="t"><b class="num" style="font-size:18px'+(l.nivel<30?';color:var(--red-ink)':'')+'">'+nf(l.nivel)+'%</b> <span class="muted">· '+fdata(l.data)+'</span>'+EX(l)+(l.obs?'<div class="muted" style="font-size:12px">'+esc(l.obs)+'</div>':'')+
+      '<div class="pend"><div class="t"><b class="num" style="font-size:18px'+(!vazio(l.nivel) && l.nivel<30?';color:var(--red-ink)':'')+'">'+txtNivel(t, l)+'</b> <span class="muted">· '+fdata(l.data)+'</span>'+EX(l)+(l.obs?'<div class="muted" style="font-size:12px">'+esc(l.obs)+'</div>':'')+
       (fotoViva(l.fotoId, l.data) ? '<a href="'+blobSrc(l.fotoId)+'" target="_blank" rel="noopener"><img src="'+blobSrc(l.fotoId)+'" alt="Foto da leitura de '+fdata(l.data)+'" loading="lazy" style="display:block;max-height:200px;margin-top:6px;border:1px solid var(--line)"></a>' : '<div class="muted" style="font-size:12px">'+(l.fotoId ? 'foto apagada após '+DIAS_FOTO+' dias' : 'sem foto')+'</div>')+
       '</div>'+(l._op ? '<div class="d muted" style="font-size:12px">'+esc(pessoa(l.autor))+'<br>aprovada</div>' : '<div class="d w"><button class="btn sm ghost" data-act="del" data-col="leituras" data-id="'+l.id+'">Excluir</button></div>')+'</div>').join('')+'</div>'
       : '<div class="empty">Nenhuma leitura registrada com foto ainda.</div>')+
@@ -3008,12 +3053,12 @@ function membros(){
 function montarVisao(fid){
   const u = fid && byId('unidades', fid);
   if (!u) return {fabricaId:''};
-  const tanques = S.tanques.filter(t => t.unidadeId === fid).map(t => ({id:t.id, gasId:t.gasId, unidadeId:t.unidadeId, codigo:t.codigo||'', capacidade:t.capacidade||'', modelo:t.modelo||'', nivel:vazio(t.nivel)?'':Number(t.nivel), ultimaLeitura:t.ultimaLeitura||'', fotoId:t.fotoId||'', exemplo:!!t.exemplo}));
+  const tanques = S.tanques.filter(t => t.unidadeId === fid).map(t => ({id:t.id, gasId:t.gasId, unidadeId:t.unidadeId, codigo:t.codigo||'', capacidade:t.capacidade||'', modelo:t.modelo||'', nivel:vazio(t.nivel)?'':Number(t.nivel), nivelPol:vazio(t.nivelPol)?'':Number(t.nivelPol), unidadeLeitura:t.unidadeLeitura||'', polCheio:vazio(t.polCheio)?'':Number(t.polCheio), tabelaPol:t.tabelaPol||'', ultimaLeitura:t.ultimaLeitura||'', fotoId:t.fotoId||'', exemplo:!!t.exemplo}));
   const ids = new Set(tanques.map(t => t.id));
   const gids = new Set(tanques.map(t => t.gasId).concat(S.usos.filter(x => x.unidadeId === fid).map(x => x.gasId)));
   const gases = S.gases.filter(g => gids.has(g.id)).map(g => ({id:g.id, nome:g.nome, medida:g.medida||''}));
   const leituras = S.leituras.filter(l => ids.has(l.tanqueId)).sort((a,b) => (b.data||'').localeCompare(a.data||'')).slice(0, 60)
-    .map(l => ({id:String(l.id), tanqueId:l.tanqueId, nivel:Number(l.nivel), data:l.data, fotoId:l.fotoId||'', exemplo:!!l.exemplo}));
+    .map(l => ({id:String(l.id), tanqueId:l.tanqueId, nivel:vazio(l.nivel) ? '' : Number(l.nivel), nivelPol:vazio(l.nivelPol) ? '' : Number(l.nivelPol), data:l.data, fotoId:l.fotoId||'', exemplo:!!l.exemplo}));
   return {fabricaId:fid, fabrica:{id:u.id, nome:u.nome, icone:u.icone||''}, tanques, gases, leituras};
 }
 function agendarSync(){ clearTimeout(syncT); syncT = setTimeout(sincronizarVisoes, 1500); }
