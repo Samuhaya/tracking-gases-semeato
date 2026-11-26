@@ -595,6 +595,7 @@ button.gchip[aria-pressed="true"]{font-weight:600}
 .ev.comprar.atr{background:oklch(0.35 0.13 27);color:#fff}
 .ev.\33 0{background:oklch(0.88 0.1 80);color:oklch(0.35 0.08 70)}
 .ev.vazio{background:var(--fg);color:var(--bg)}
+.ev.entrega{background:oklch(0.55 0.13 245);color:#fff;text-decoration:none}.ev.entrega.feita{background:oklch(0.9 0.04 245);color:oklch(0.35 0.1 245)}.ev.entrega.atr{background:oklch(0.45 0.15 27)}
 .ev:focus-visible{outline:2px solid var(--fg);outline-offset:1px}
 .mais{font-size:11px;color:var(--muted);padding-left:4px}
 @media (max-width:720px){.cday{min-height:58px;padding:4px}.ev span{display:none}.ev{justify-content:center;padding:3px}.cwd{padding:2px;text-align:center}}
@@ -1038,10 +1039,9 @@ const SCHEMA = {
     {k:'unidadeId',l:'Fábrica',t:'ref',ref:'unidades',req:1},
     {k:'quantidade',l:'Quantidade',t:'number'},
     {k:'antecipado',l:'Pagamento antecipado',t:'select',opts:SIMNAO},
-    {k:'dataConfPagamento',l:'Confirmação do pagamento',t:'date'},
+    {k:'dataConfPagamento',l:'Data do pagamento (lança em Pagamentos e notas)',t:'date'},
     {k:'dataEntrega',l:'Entrega real',t:'date'},
     {k:'valor',l:'Valor (R$)',t:'number'},
-    {k:'dataPagamento',l:'Data do pagamento (lança em Pagamentos e notas)',t:'date'},
     {k:'nf',l:'Número da nota fiscal',t:'text',full:1},
   ]},
   leituras:{titulo:'Leitura', campos:[]},
@@ -1919,6 +1919,12 @@ function vCalendario(){
     if (p.d30 && p.d30 >= HOJE) evs.push({d:p.d30, tipo:'30', t, p});
     if (p.d0) evs.push({d:p.d0, tipo:'vazio', t, p});
   });
+  S.pedidos.filter(p => !fab || p.unidadeId === fab).forEach(p => {
+    const a = avaliar(p), d = p.dataEntrega || a.venc;
+    if (!d) return;
+    evs.push({d, tipo:'entrega', t:{id:'', gasId:p.gasId, unidadeId:p.unidadeId, codigo:''}, p:{}, ped:p, feita: !!p.dataEntrega && p.dataEntrega <= HOJE, prevista: !p.dataEntrega, atrasado: !p.dataEntrega && a.venc < HOJE});
+  });
+  const entLbl = e => e.feita ? 'Entregue' : e.prevista ? (e.atrasado ? 'Entrega atrasada' : 'Entrega prevista') : 'Entrega';
   const [y, m] = calMes.split('-').map(Number);
   const nomeMes0 = new Date(Date.UTC(y, m-1, 15)).toLocaleDateString('pt-BR', {month:'long', year:'numeric', timeZone:'UTC'});
   const nomeMes = nomeMes0.charAt(0).toUpperCase() + nomeMes0.slice(1);
@@ -1928,6 +1934,7 @@ function vCalendario(){
   const evChip = e => {
     const v = gasVis(byId('gases', e.t.gasId));
     const u = byId('unidades', e.t.unidadeId);
+    if (e.tipo === 'entrega') return '<a class="ev entrega'+(e.feita?' feita':'')+(e.atrasado?' atr':'')+'" href="#pedidos" title="'+esc(entLbl(e)+': '+nomeGas(e.t.gasId)+' '+(u?u.nome:'')+(vazio(e.ped.quantidade)?'':' · '+nf(e.ped.quantidade)))+'">'+svgIc(v.ic, 12)+'<span>'+(e.feita?'Entregue':'Entrega')+' · '+esc(u ? u.nome : '')+'</span></a>';
     const lbl = e.tipo === 'comprar' ? 'Comprar' : e.tipo === '30' ? '30%' : 'Vazio';
     return '<button class="ev '+e.tipo+(e.atrasado?' atr':'')+'" style="--g:'+v.cor+'" data-act="tsel2" data-id="'+e.t.id+'" title="'+esc(lbl+': '+nomeGas(e.t.gasId)+' '+(u?u.nome:'')+(e.t.codigo?' · '+e.t.codigo:''))+'">'+svgIc(v.ic, 12)+'<span>'+lbl+' · '+esc(u ? u.nome : '')+'</span></button>';
   };
@@ -1936,7 +1943,7 @@ function vCalendario(){
   for (let i = 0; i < diaSem; i++) cells += '<div class="cday out"></div>';
   for (let dia = 1; dia <= diasMes; dia++){
     const iso = calMes+'-'+pad(dia);
-    const doDia = evs.filter(e => e.d === iso).sort((a,b) => ['comprar','30','vazio'].indexOf(a.tipo) - ['comprar','30','vazio'].indexOf(b.tipo));
+    const doDia = evs.filter(e => e.d === iso).sort((a,b) => ['comprar','entrega','30','vazio'].indexOf(a.tipo) - ['comprar','entrega','30','vazio'].indexOf(b.tipo));
     cells += '<div class="cday'+(iso===HOJE?' hoje':'')+(iso<HOJE?' passado':'')+(inv?' inv':'')+(doDia.some(e => e.tipo==='comprar')?' tem':'')+'"><span class="dn">'+dia+'</span>'+
       doDia.slice(0,3).map(evChip).join('')+(doDia.length > 3 ? '<span class="mais">+'+(doDia.length-3)+'</span>' : '')+'</div>';
   }
@@ -1956,12 +1963,12 @@ function vCalendario(){
   const ajEditor = '<section class="panel"><div class="sec-h"><div><h3>Ajuste de consumo por mês</h3><p class="muted" style="margin:4px 0 0;font-size:13px;max-width:70ch">O frio faz o gás acabar antes. Cada mês recebe um ajuste sobre o ritmo medido. Por padrão, junho a agosto consomem 10% a mais. Ajuste com a experiência da Semeato.</p></div></div>'+
     '<div class="saz">'+MESES.map((nm,i) => '<label class="szm'+(INVERNO.includes(i+1)?' inv':'')+'"><span>'+nm+'</span><input type="number" step="1" data-saz="'+i+'" value="'+aj[i]+'" aria-label="Ajuste de '+nm+' em %"'+(ehAdm()?'':' disabled')+'><i>%</i></label>').join('')+'</div>'+
     '<div class="tools w" style="justify-content:flex-end"><button class="btn ghost" data-act="sazpadrao">Voltar ao padrão</button><button class="btn pri" data-act="sazsalvar">Salvar ajustes</button></div></section>';
-  return '<section class="sec"><div class="sec-h"><div><h2>Calendário de compras</h2><p class="muted" style="margin:4px 0 0;max-width:70ch">Previsão pelo ritmo de consumo de cada tanque, com ajuste de inverno. A data de compra já desconta o prazo de entrega do fornecedor para o gás chegar antes de o tanque cair abaixo de 30%.</p></div></div></section>'+
+  return '<section class="sec"><div class="sec-h"><div><h2>Calendário de compras</h2><p class="muted" style="margin:4px 0 0;max-width:70ch">Mostra as entregas dos pedidos (data real ou prevista pelo prazo do contrato) e a previsão de compra pelo ritmo de consumo de cada tanque, com ajuste de inverno. A data de compra já desconta o prazo de entrega do fornecedor para o gás chegar antes de o tanque cair abaixo de 30%.</p></div></div></section>'+
     (urg.length ? '<div class="banner red alerts" role="alert"><b>Comprar logo</b><ul>'+urg.map(x => '<li>'+esc(nomeGas(x.t.gasId)+' '+nomeUni(x.t.unidadeId))+': '+(x.p.urgente ? 'pedir já' : 'até '+fdata(x.p.comprarAte))+'</li>').join('')+'</ul></div>' : '')+
     '<section class="panel cal"><div class="sec-h calh"><button class="btn sm" data-act="calmes" data-id="-1" aria-label="Mês anterior">‹</button><h3 class="cm">'+esc(nomeMes)+(inv ? ' <span class="pill ice">'+svgIc('snow',12)+'inverno · consumo +'+aj[m-1]+'%</span>' : aj[m-1] ? ' <span class="pill">ajuste '+(aj[m-1]>0?'+':'')+aj[m-1]+'%</span>' : '')+'</h3><button class="btn sm" data-act="calmes" data-id="1" aria-label="Próximo mês">›</button><span class="sp"></span>'+(calMes !== HOJE.slice(0,7) ? '<button class="btn sm ghost" data-act="calmes" data-id="0">Hoje</button>' : '')+'</div>'+
     '<div class="calgrid">'+cells+'</div>'+
-    '<div class="clegend"><span><i class="sw" style="background:var(--red)"></i>data-limite para comprar</span><span><i class="sw" style="background:oklch(0.8 0.12 75)"></i>chega a 30%</span><span><i class="sw" style="background:var(--fg)"></i>tanque vazio (sem compra)</span><span><i class="sw" style="background:color-mix(in oklab,var(--g-ar) 18%,var(--card))"></i>inverno</span></div></section>'+
-    (doMes.length ? '<section class="sec"><h3>Agenda de '+esc(nomeMes)+'</h3><div class="list">'+doMes.map(e => '<div class="pend"><div class="d" style="text-align:left;min-width:64px"><b>'+e.d.slice(8)+'</b>'+esc(MESES[Number(e.d.slice(5,7))-1])+'</div><div class="t" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pill '+(e.tipo==='comprar'?'bad':e.tipo==='30'?'warn':'open')+'">'+(e.tipo==='comprar'?(e.atrasado?'Comprar já (atrasado)':'Comprar até hoje'.replace(' hoje','')):e.tipo==='30'?'Chega a 30%':'Tanque vazio')+'</span>'+fchip(e.t.unidadeId)+gchip(e.t.gasId)+'<span class="mono muted">'+esc(e.t.codigo||'')+'</span>'+(e.tipo==='comprar' && e.p.qtd ? '<span class="muted">~'+nf(e.p.qtd.v)+' '+e.p.qtd.u+'</span>' : '')+'</div></div>').join('')+'</div></section>' : '')+
+    '<div class="clegend"><span><i class="sw" style="background:var(--red)"></i>data-limite para comprar</span><span><i class="sw" style="background:oklch(0.55 0.13 245)"></i>entrega de pedido</span><span><i class="sw" style="background:oklch(0.8 0.12 75)"></i>chega a 30%</span><span><i class="sw" style="background:var(--fg)"></i>tanque vazio (sem compra)</span><span><i class="sw" style="background:color-mix(in oklab,var(--g-ar) 18%,var(--card))"></i>inverno</span></div></section>'+
+    (doMes.length ? '<section class="sec"><h3>Agenda de '+esc(nomeMes)+'</h3><div class="list">'+doMes.map(e => '<div class="pend"><div class="d" style="text-align:left;min-width:64px"><b>'+e.d.slice(8)+'</b>'+esc(MESES[Number(e.d.slice(5,7))-1])+'</div><div class="t" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pill '+(e.tipo==='entrega'?(e.atrasado?'bad':'ice'):e.tipo==='comprar'?'bad':e.tipo==='30'?'warn':'open')+'">'+(e.tipo==='entrega'?entLbl(e):e.tipo==='comprar'?(e.atrasado?'Comprar já (atrasado)':'Comprar até hoje'.replace(' hoje','')):e.tipo==='30'?'Chega a 30%':'Tanque vazio')+'</span>'+fchip(e.t.unidadeId)+gchip(e.t.gasId)+'<span class="mono muted">'+esc(e.t.codigo||'')+'</span>'+(e.tipo==='comprar' && e.p.qtd ? '<span class="muted">~'+nf(e.p.qtd.v)+' '+e.p.qtd.u+'</span>' : '')+(e.tipo==='entrega' ? '<span class="muted">pedido de '+fdata(e.ped.data)+(vazio(e.ped.quantidade)?'':' · '+nf(e.ped.quantidade)+' '+esc(medidaTxt((byId('gases',e.ped.gasId)||{}).medida)))+(e.prevista?' · pelo prazo do contrato':'')+'</span>'+EX(e.ped) : '')+'</div></div>').join('')+'</div></section>' : '')+
     '<section class="sec"><h3>Próximas compras'+fabTag()+'</h3>'+tbl+
     (semP.length ? '<div class="banner alerts"><b>Fora do calendário</b><ul>'+semP.map(x => '<li><b>'+esc(nomeGas(x.t.gasId)+' '+nomeUni(x.t.unidadeId))+(x.t.codigo ? ' · '+esc(x.t.codigo) : '')+'</b>: '+motivoSemPrev(x.t, x.c)+(ehAdm() && ehPol(x.t) && vazio(x.t.nivel) ? ' <button class="btn sm ghost" data-act="edit" data-col="tanques" data-id="'+x.t.id+'">Editar tanque</button>' : '')+'</li>').join('')+'</ul></div>' : '')+
     '<p class="muted" style="margin:0;font-size:12.5px">Quantidade sugerida: o necessário para voltar de 30% a '+ALVO_ENCHER+'% do tanque. Quando o fornecedor não informou o prazo de entrega, o cálculo usa '+PRAZO_PADRAO+' dias.</p></section>'+
@@ -1973,7 +1980,7 @@ function vCalendario(){
 /* ---------- PEDIDO -> PAGAMENTO E PREÇO (automático) ---------- */
 /* Pedido com valor e data de pagamento lança o pagamento na conta corrente do fornecedor;
    pedido com valor e quantidade lança o preço por unidade na tabela de preços. Falta só a nota. */
-const dataPagPedido = p => p.dataPagamento || (p.antecipado === 'sim' ? p.dataConfPagamento : '') || '';
+const dataPagPedido = p => p.dataPagamento || p.dataConfPagamento || '';
 async function sincronizarPedido(pid, p){
   const idPag = 'ped-'+pid, idPre = 'ped-'+pid;
   const pagAt = byId('pagamentos', idPag), preAt = byId('precos', idPre);
@@ -2447,7 +2454,7 @@ function vPedidos(){
     {h:'Gás', f:x => gchip(x.p.gasId)+'<div class="muted" style="font-size:12px;margin-top:3px">'+esc(nomeForn(fornDeGas(x.p.gasId)))+'</div>'},
     {h:'Fábrica', f:x => fchip(x.p.unidadeId)},
     {h:'Qtd.', n:1, f:x => vazio(x.p.quantidade) ? '—' : nf(x.p.quantidade,2)+' '+esc(medidaTxt(byId('gases',x.p.gasId)?.medida))},
-    {h:'Pag. antecipado', f:x => x.p.antecipado==='sim' ? 'Sim'+(x.p.dataConfPagamento?'<br><span class="muted">conf. '+fdata(x.p.dataConfPagamento)+'</span>':'') : 'Não'},
+    {h:'Pagamento', f:x => (x.p.antecipado==='sim' ? 'Antecipado' : 'Normal')+(x.p.dataConfPagamento?'<br><span class="muted">pago '+fdata(x.p.dataConfPagamento)+'</span>':'')},
     {h:'Entrega', f:x => x.p.dataEntrega ? fdata(x.p.dataEntrega) : '<span class="muted">—</span>'},
     {h:'Atendimento × prazo', f:x => x.a.dias===undefined ? '—' : '<span class="num">'+x.a.dias+' d</span> <span class="muted">× '+(x.a.prazo ?? '?')+' d</span><br><span class="muted" style="font-size:12px">desde o '+x.a.base+'</span>'},
     {h:'Situação', f:x => pill(x.a)},
