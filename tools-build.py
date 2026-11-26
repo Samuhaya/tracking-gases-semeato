@@ -74,6 +74,9 @@ rep("""    {h:'', act:1, f:u => '<button class="btn sm ghost" data-act="usrativo
 rep("""  else if (act === 'usrativo'){""", """  else if (act === 'usrsenha') criarConta(id, b.dataset.nome || '', 'senha');
   else if (act === 'usrativo'){""")
 
+# Visões das fábricas agora são montadas no banco (supabase/002_visoes.sql)
+rep("async function sincronizarVisoes(){\n  if (papel !== 'adm'", "async function sincronizarVisoes(){ return; /* feito no servidor */\n  if (papel !== 'adm'")
+
 # Documento completo para GitHub Pages
 head = """<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#F5F5F7"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png">

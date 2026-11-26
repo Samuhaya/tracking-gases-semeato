@@ -1041,6 +1041,7 @@ const SCHEMA = {
     {k:'dataConfPagamento',l:'Confirmação do pagamento',t:'date'},
     {k:'dataEntrega',l:'Entrega real',t:'date'},
     {k:'valor',l:'Valor (R$)',t:'number'},
+    {k:'dataPagamento',l:'Data do pagamento (lança em Pagamentos e notas)',t:'date'},
     {k:'nf',l:'Número da nota fiscal',t:'text',full:1},
   ]},
   leituras:{titulo:'Leitura', campos:[]},
@@ -1900,6 +1901,14 @@ function quandoTxt(d){
 }
 
 /* ---------- CALENDÁRIO DE COMPRAS ---------- */
+function motivoSemPrev(t, c){
+  if (vazio(t.nivel) && ehPol(t) && (t.nivelPol !== undefined && !vazio(t.nivelPol))) return 'medidor em polegadas sem conversão. Informe no tanque quantas polegadas marca cheio (ou a tabela do fornecedor) para virar %.';
+  if (vazio(t.nivel)) return 'ainda sem leitura.';
+  const n = c ? c.ls.length : 0;
+  if (n < 2) return 'só '+n+' '+plural(n,'leitura','leituras')+'. Precisa de mais uma leitura em outro dia.';
+  if (!c.uso.length) return 'as leituras só mostram o nível subindo (abastecimento). Falta uma leitura depois, com o nível baixando.';
+  return 'o nível ficou igual entre as leituras. A previsão aparece quando o nível começar a baixar.';
+}
 let calMes = HOJE.slice(0,7);
 function vCalendario(){
   const prev = previsoes();
@@ -1954,11 +1963,55 @@ function vCalendario(){
     '<div class="clegend"><span><i class="sw" style="background:var(--red)"></i>data-limite para comprar</span><span><i class="sw" style="background:oklch(0.8 0.12 75)"></i>chega a 30%</span><span><i class="sw" style="background:var(--fg)"></i>tanque vazio (sem compra)</span><span><i class="sw" style="background:color-mix(in oklab,var(--g-ar) 18%,var(--card))"></i>inverno</span></div></section>'+
     (doMes.length ? '<section class="sec"><h3>Agenda de '+esc(nomeMes)+'</h3><div class="list">'+doMes.map(e => '<div class="pend"><div class="d" style="text-align:left;min-width:64px"><b>'+e.d.slice(8)+'</b>'+esc(MESES[Number(e.d.slice(5,7))-1])+'</div><div class="t" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pill '+(e.tipo==='comprar'?'bad':e.tipo==='30'?'warn':'open')+'">'+(e.tipo==='comprar'?(e.atrasado?'Comprar já (atrasado)':'Comprar até hoje'.replace(' hoje','')):e.tipo==='30'?'Chega a 30%':'Tanque vazio')+'</span>'+fchip(e.t.unidadeId)+gchip(e.t.gasId)+'<span class="mono muted">'+esc(e.t.codigo||'')+'</span>'+(e.tipo==='comprar' && e.p.qtd ? '<span class="muted">~'+nf(e.p.qtd.v)+' '+e.p.qtd.u+'</span>' : '')+'</div></div>').join('')+'</div></section>' : '')+
     '<section class="sec"><h3>Próximas compras'+fabTag()+'</h3>'+tbl+
-    (semP.length ? '<p class="muted" style="margin:0;font-size:13px">Sem leituras suficientes para prever: '+semP.map(x => esc(nomeGas(x.t.gasId)+' '+nomeUni(x.t.unidadeId))).join(', ')+'.</p>' : '')+
+    (semP.length ? '<div class="banner alerts"><b>Fora do calendário</b><ul>'+semP.map(x => '<li><b>'+esc(nomeGas(x.t.gasId)+' '+nomeUni(x.t.unidadeId))+(x.t.codigo ? ' · '+esc(x.t.codigo) : '')+'</b>: '+motivoSemPrev(x.t, x.c)+(ehAdm() && ehPol(x.t) && vazio(x.t.nivel) ? ' <button class="btn sm ghost" data-act="edit" data-col="tanques" data-id="'+x.t.id+'">Editar tanque</button>' : '')+'</li>').join('')+'</ul></div>' : '')+
     '<p class="muted" style="margin:0;font-size:12.5px">Quantidade sugerida: o necessário para voltar de 30% a '+ALVO_ENCHER+'% do tanque. Quando o fornecedor não informou o prazo de entrega, o cálculo usa '+PRAZO_PADRAO+' dias.</p></section>'+
     ajEditor;
 }
 
+
+
+/* ---------- PEDIDO -> PAGAMENTO E PREÇO (automático) ---------- */
+/* Pedido com valor e data de pagamento lança o pagamento na conta corrente do fornecedor;
+   pedido com valor e quantidade lança o preço por unidade na tabela de preços. Falta só a nota. */
+const dataPagPedido = p => p.dataPagamento || (p.antecipado === 'sim' ? p.dataConfPagamento : '') || '';
+async function sincronizarPedido(pid, p){
+  const idPag = 'ped-'+pid, idPre = 'ped-'+pid;
+  const pagAt = byId('pagamentos', idPag), preAt = byId('precos', idPre);
+  const fid = p ? fornDeGas(p.gasId) : '';
+  const dPag = p ? dataPagPedido(p) : '';
+  if (p && fid && !vazio(p.valor) && Number(p.valor) > 0 && dPag){
+    const nota = S.notas.find(n => n.pedidoId === pid);
+    await db.collection('pagamentos').doc(idPag).set({
+      fornecedorId: fid, data: dPag, valor: Number(p.valor),
+      notaId: (pagAt && pagAt.notaId) || (nota ? nota.id : ''), pedidoId: pid, origem: 'pedido',
+      fotoId: (pagAt && pagAt.fotoId) || '', obs: (pagAt && pagAt.obs) || '', exemplo: !!p.exemplo});
+  } else if (pagAt && pagAt.origem === 'pedido') await db.collection('pagamentos').doc(idPag).delete();
+  const qtd = p ? Number(p.quantidade) : 0;
+  if (p && !vazio(p.valor) && Number(p.valor) > 0 && qtd > 0 && p.data){
+    const g = byId('gases', p.gasId) || {};
+    await db.collection('precos').doc(idPre).set({gasId: p.gasId, medida: g.medida || '', preco: Math.round(Number(p.valor)/qtd*10000)/10000,
+      vigencia: p.data, pedidoId: pid, unidadeId: p.unidadeId || '', origem: 'pedido', exemplo: !!p.exemplo});
+  } else if (preAt && preAt.origem === 'pedido') await db.collection('precos').doc(idPre).delete();
+}
+/* Pedidos antigos ou editados em outro aparelho: garante que o pagamento e o preço estão lançados */
+let conferindoPed = false;
+async function conferirPedidos(){
+  if (conferindoPed || papel !== 'adm' || !ehAdm() || loaded.size < COLS.length) return;
+  conferindoPed = true;
+  try {
+    for (const p of S.pedidos){
+      const pag = byId('pagamentos', 'ped-'+p.id), pre = byId('precos', 'ped-'+p.id), fid = fornDeGas(p.gasId);
+      const querPag = fid && !vazio(p.valor) && Number(p.valor) > 0 && !!dataPagPedido(p);
+      const querPre = !vazio(p.valor) && Number(p.valor) > 0 && Number(p.quantidade) > 0 && !!p.data;
+      const okPag = querPag ? (pag && pag.valor === Number(p.valor) && pag.data === dataPagPedido(p) && pag.fornecedorId === fid) : !(pag && pag.origem === 'pedido');
+      const okPre = querPre ? (pre && pre.vigencia === p.data && pre.gasId === p.gasId && Math.abs(pre.preco - Number(p.valor)/Number(p.quantidade)) < 0.001) : !(pre && pre.origem === 'pedido');
+      if (!okPag || !okPre) await sincronizarPedido(p.id, p);
+    }
+    for (const x of S.pagamentos.concat(S.precos)) if (x.origem === 'pedido' && x.pedidoId && !byId('pedidos', x.pedidoId)) await sincronizarPedido(x.pedidoId, null);
+  } catch(_){} finally { conferindoPed = false; }
+}
+/* Pagamento ligado a um pedido entra na nota desse pedido assim que a nota é lançada */
+const notaDoPag = (p, notas) => (p.notaId && notas.some(n => n.id === p.notaId)) ? p.notaId : (p.pedidoId ? ((notas.find(n => n.pedidoId === p.pedidoId) || {}).id || '') : '');
 
 /* ---------- PAGAMENTOS E NOTAS (conta corrente por fornecedor) ---------- */
 let finForn = '';
@@ -1967,8 +2020,8 @@ const real = c => c/100;
 /* Ordem: data; no mesmo dia, nota antes do pagamento. Crédito = pago a mais (ou antecipado sem nota), descontado nas notas seguintes. */
 function contaCorrente(fid){
   const notas = S.notas.filter(n => n.fornecedorId === fid).map(n => ({...n, _t:'nota', _d:n.emissao||''}));
-  const pags = S.pagamentos.filter(p => p.fornecedorId === fid);
-  const avulsos = pags.filter(p => !p.notaId || !notas.some(n => n.id === p.notaId)).map(p => ({...p, _t:'pag', _d:p.data||''}))
+  const pags = S.pagamentos.filter(p => p.fornecedorId === fid).map(p => ({...p, notaId: notaDoPag(p, notas)}));
+  const avulsos = pags.filter(p => !p.notaId).map(p => ({...p, _t:'pag', _d:p.data||''}))
     .concat(S.creditos.filter(c => c.fornecedorId === fid).map(c => ({...c, _t:'pag', _d:c.data||'', _cred:true})));
   const evs = notas.concat(avulsos).sort((a,b) => a._d.localeCompare(b._d) || (a._t === 'nota' ? -1 : 1));
   let pool = 0; const linhas = []; const resNota = {};
@@ -2020,7 +2073,8 @@ function vFinanceiro(){
   const tbl = linhas.length ? '<div class="list ledger">'+linhas.map(l => {
     if (l.tipo === 'pag' && l.r._cred){ const c = l.r, ped = c.pedidoId ? byId('pedidos', c.pedidoId) : null;
       return '<div class="lg pag cred"><div class="lgd"><b>'+fdata(c.data)+'</b><span class="pill ok2">Crédito</span></div><div class="lgm">+ '+brl(c.valor)+'<span class="muted">'+esc(CRED_MOT[c.motivo]||'Crédito')+(c.qtdFaltou ? ' · faltaram '+nf(c.qtdFaltou)+' '+esc(c.unidade||'') : '')+(ped ? ' · pedido de '+fdata(ped.data)+' ('+esc(nomeGas(ped.gasId))+' '+esc(nomeUni(ped.unidadeId))+')' : '')+(c.obs ? ' · '+esc(c.obs) : '')+'</span><span class="muted">abate notas em aberto ou a próxima</span></div><div class="lgx">'+arqLink(c.fotoId,'documento',c.data)+EX(c)+'<span class="w">'+(c.origem === 'conferencia' ? '<a class="btn sm ghost" href="#conferencia" data-act="irconf">ver conferência</a>' : '<button class="btn sm ghost" data-act="credit" data-id="'+c.id+'">Editar</button>')+'<button class="btn sm ghost" data-act="del" data-col="creditos" data-id="'+c.id+'">Excluir</button></span></div></div>'; }
-    if (l.tipo === 'pag') return '<div class="lg pag"><div class="lgd"><b>'+fdata(l.r.data)+'</b><span class="pill">Pagamento sem nota</span></div><div class="lgm">'+brl(l.r.valor)+'<span class="muted">pago antecipado · vira crédito</span></div><div class="lgx">'+arqLink(l.r.fotoId,'comprovante',l.r.data)+EX(l.r)+'<span class="w">'+finAcoes('pagamentos', l.r)+'</span></div></div>';
+    if (l.tipo === 'pag'){ const pp = l.r.pedidoId ? byId('pedidos', l.r.pedidoId) : null;
+      return '<div class="lg pag"><div class="lgd"><b>'+fdata(l.r.data)+'</b><span class="pill">'+(pp ? 'Pago no pedido · falta a nota' : 'Pagamento sem nota')+'</span></div><div class="lgm">'+brl(l.r.valor)+'<span class="muted">'+(pp ? 'pedido de '+fdata(pp.data)+' · '+esc(nomeGas(pp.gasId))+' '+esc(nomeUni(pp.unidadeId))+' · ao lançar a nota deste pedido, o pagamento entra nela' : 'pago antecipado · vira crédito')+'</span></div><div class="lgx">'+arqLink(l.r.fotoId,'comprovante',l.r.data)+EX(l.r)+'<span class="w">'+finAcoes('pagamentos', l.r)+'</span></div></div>'; }
     const n = l.r, ped = n.pedidoId ? byId('pedidos', n.pedidoId) : null;
     const difPed = ped && !vazio(ped.valor) ? cent(n.valor) - cent(ped.valor) : 0;
     return '<div class="lg nf"><div class="lgd"><b>'+fdata(n.emissao)+'</b><span class="pill '+ST_NF[l.st][1]+'">'+ST_NF[l.st][0]+'</span></div>'+
@@ -2096,7 +2150,7 @@ function abrirFin(tipo, id, notaPre){
     q('#ffin').addEventListener('submit', async ev => {
       ev.preventDefault(); const f = ev.target;
       if (!f.checkValidity()){ f.reportValidity(); return; }
-      if (!arq && !r.fotoId){ toast(tipo === 'nota' ? 'Anexe a foto ou o PDF da nota.' : 'Anexe a foto do comprovante.', 1); return; }
+      if (!arq && !r.fotoId && !(tipo !== 'nota' && r.origem === 'pedido')){ toast(tipo === 'nota' ? 'Anexe a foto ou o PDF da nota.' : 'Anexe a foto do comprovante.', 1); return; }
       const btn = f.querySelector('button.pri'); btn.disabled = true; btn.textContent = arq ? 'Enviando arquivo…' : 'Salvando…';
       try {
         const fotoId = arq ? await subirArquivo(arq) : r.fotoId;
@@ -2106,11 +2160,12 @@ function abrirFin(tipo, id, notaPre){
           const ped = body.pedidoId && byId('pedidos', body.pedidoId);
           if (ped && vazio(ped.nf)) await db.collection('pedidos').doc(ped.id).update({nf:body.numero}).catch(() => {});
         } else {
-          body = {fornecedorId:q('#fp_f').value, data:q('#fp_d').value, valor:Number(q('#fp_v').value), notaId:q('#fp_n').value, fotoId, obs:q('#fp_o').value.trim(), exemplo:!!r.exemplo};
+          body = {fornecedorId:q('#fp_f').value, data:q('#fp_d').value, valor:Number(q('#fp_v').value), notaId:q('#fp_n').value, fotoId, obs:q('#fp_o').value.trim(), pedidoId:r.pedidoId||'', origem:r.origem||'', exemplo:!!r.exemplo};
         }
         if (id) await db.collection(col).doc(id).set(body); else await db.collection(col).add(body);
         finForn = body.fornecedorId;
-        fecharModal(); toast(tipo === 'nota' ? 'Nota salva' : 'Pagamento salvo');
+        const pagPed = tipo === 'nota' && body.pedidoId ? S.pagamentos.filter(p => p.pedidoId === body.pedidoId).length : 0;
+        fecharModal(); toast(tipo === 'nota' ? (pagPed ? 'Nota salva · o pagamento do pedido já entrou nela' : 'Nota salva') : 'Pagamento salvo');
       } catch(err){ btn.disabled = false; btn.textContent = 'Salvar'; if (err && err.code === 'sem_assets') toast('Sua conta não pode enviar arquivos.', 1); else erroDb(err); }
     });
   });
@@ -2468,14 +2523,14 @@ function vPrecos(){
     {h:'Código', f:r => '<span class="mono">'+val(byId('gases',r.gasId)?.codigo,AW(fornDeGas(r.gasId)))+'</span>'},
     {h:'Medida', f:r => esc(medidaTxt(r.medida))},
     {h:'Preço', n:1, f:r => val(r.preco,AW(fornDeGas(r.gasId)),brl)},
-    {h:'Vigente a partir de', f:r => fdata(r.vigencia)},
+    {h:'Vigente a partir de', f:r => fdata(r.vigencia)+(r.origem === 'pedido' ? '<div class="muted" style="font-size:12px">do pedido'+(r.unidadeId ? ' · '+esc(nomeUni(r.unidadeId)) : '')+'</div>' : '')},
     {h:'', f:r => vig.has(r.id) ? '<span class="pill open">Vigente</span>' : r.vigencia > HOJE ? '<span class="pill">Futuro</span>' : '<span class="muted">Histórico</span>'},
     {h:'', act:1, f:r => acoes('precos',r)},
   ], rows) : vazioMsg('Tabela de preços: aguardando os fornecedores.','precos');
   return '<section class="sec"><div class="sec-h"><h2>Variação de preço</h2><span class="sp"></span>'+
     (gases.length ? '<div class="gtabs" role="group" aria-label="Gás do gráfico">'+gases.map(g => { const v = gasVis(g); return '<button class="gchip" style="--g:'+v.cor+'" data-act="gg" data-id="'+g.id+'" aria-pressed="'+(g.id===gasGrafico)+'">'+svgIc(v.ic,15)+esc(g.nome)+'</button>'; }).join('')+'</div>' : '')+'</div>'+
     '<div class="panel">'+(gasGrafico ? grafico(gasGrafico) : '<div class="empty">Cadastre os gases para ver o gráfico.</div>')+'</div></section>'+
-    '<section class="sec"><div class="sec-h"><div><h2>Tabela de preços</h2><p class="muted" style="margin:4px 0 0">Um preço novo entra com nova data de vigência e o anterior fica no histórico.</p></div><span class="sp"></span><div class="tools"><button class="btn" data-act="csv" data-what="precos">Exportar CSV</button><button class="btn pri w" data-act="new" data-col="precos">Novo preço</button></div></div>'+tbl+'</section>';
+    '<section class="sec"><div class="sec-h"><div><h2>Tabela de preços</h2><p class="muted" style="margin:4px 0 0">Um preço novo entra com nova data de vigência e o anterior fica no histórico. Cada pedido com valor e quantidade lança aqui o preço por unidade automaticamente.</p></div><span class="sp"></span><div class="tools"><button class="btn" data-act="csv" data-what="precos">Exportar CSV</button><button class="btn pri w" data-act="new" data-col="precos">Novo preço</button></div></div>'+tbl+'</section>';
 }
 
 /* ---------- PRAZOS ---------- */
@@ -2630,7 +2685,7 @@ function render(){
     v.innerHTML = fechado ? vFechado() : (papel === 'op' && opEstado !== 'ok') ? vAguardando() : VIEWS[tabAtual()]();
     resolverNomes();
     desenharQR();
-    if (papel === 'adm'){ agendarSync(); setTimeout(limparFotos, 4000); }
+    if (papel === 'adm'){ agendarSync(); setTimeout(limparFotos, 4000); setTimeout(conferirPedidos, 2500); }
     if (!booted){ booted = true; v.classList.add('boot'); setTimeout(() => v.classList.remove('boot'), 1200); }
   });
 }
@@ -2703,8 +2758,14 @@ function abrirForm(col, id){
       body.exemplo = !!frm.elements.exemplo.checked;
       const btn = frm.querySelector('button[type=submit]'); btn.disabled = true; btn.textContent = 'Salvando…';
       try {
+        let novoId = id;
         if (id) await db.collection(col).doc(id).set(body);
-        else await db.collection(col).add(body);
+        else novoId = (await db.collection(col).add(body)).id;
+        if (col === 'pedidos' && novoId){
+          await sincronizarPedido(novoId, body).catch(erroDb);
+          const lanc = [dataPagPedido(body) && !vazio(body.valor) ? 'pagamento' : '', !vazio(body.valor) && Number(body.quantidade) > 0 ? 'preço' : ''].filter(Boolean);
+          fecharModal(); toast(lanc.length ? 'Pedido salvo · '+lanc.join(' e ')+' lançado'+(lanc.length > 1 ? 's' : '') : 'Salvo'); return;
+        }
         fecharModal(); toast('Salvo');
       } catch(err){ btn.disabled = false; btn.textContent = 'Salvar'; erroDb(err); }
     });
@@ -2827,7 +2888,7 @@ document.addEventListener('click', e => {
   else if (act === 'edit') abrirForm(col, id);
   else if (act === 'del'){
     const r = byId(col,id); if (!r) return;
-    confirmar('Excluir '+esc(SCHEMA[col].titulo.toLowerCase())+' <b>'+esc(rotulo(col,r))+'</b>? Esta ação não pode ser desfeita.', () => db.collection(col).doc(id).delete());
+    confirmar('Excluir '+esc(SCHEMA[col].titulo.toLowerCase())+' <b>'+esc(rotulo(col,r))+'</b>?'+(col === 'pedidos' ? ' O pagamento e o preço lançados por este pedido também saem.' : '')+' Esta ação não pode ser desfeita.', async () => { await db.collection(col).doc(id).delete(); if (col === 'pedidos') await sincronizarPedido(id, null); });
   }
   else if (act === 'csv') exportar(b.dataset.what);
   else if (act === 'gg'){ gasGrafico = id; render(); }
@@ -3062,7 +3123,7 @@ function montarVisao(fid){
   return {fabricaId:fid, fabrica:{id:u.id, nome:u.nome, icone:u.icone||''}, tanques, gases, leituras};
 }
 function agendarSync(){ clearTimeout(syncT); syncT = setTimeout(sincronizarVisoes, 1500); }
-async function sincronizarVisoes(){
+async function sincronizarVisoes(){ return; /* feito no servidor */
   if (papel !== 'adm' || !db || loaded.size < COLS.length) return;
   for (const p of (S.pessoas || [])){
     if (p.uid === meuId || !(p.uid in emails)) continue;
