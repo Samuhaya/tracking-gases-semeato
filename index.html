@@ -866,6 +866,10 @@ button.gchip[aria-pressed="true"] svg{color:var(--g)}
   .tw td:not(.act) > .pill ~ div{flex-basis:100%;text-align:right}
 }
 
+/* ---------- USO DO TANQUE ---------- */
+.usotq{font-weight:700;font-size:15px;color:var(--fg)}
+.divped{display:flex;flex-direction:column;gap:2px;margin-top:4px;font-size:12px;color:var(--muted);text-align:right}
+.divped b{color:var(--fg);font-weight:600}
 /* ---------- BARRA INFERIOR (celular) ---------- */
 .bnav{display:none}
 @media (max-width:820px), (pointer:coarse){
@@ -1071,9 +1075,11 @@ const SCHEMA = {
     {k:'vigencia',l:'Vigente a partir de',t:'date',req:1},
   ]},
   tanques:{titulo:'Tanque/cilindro', campos:[
+    {k:'uso',l:'Uso deste tanque (ex.: Empilhadeira, Refeitório, Macharia, Rotomoldagem)',t:'text',full:1},
     {k:'codigo',l:'Código de identificação',t:'text',copa:1},
     {k:'gasId',l:'Gás',t:'ref',ref:'gases',req:1},
     {k:'unidadeId',l:'Fábrica',t:'ref',ref:'unidades',req:1},
+    {k:'parteAbastecimento',l:'Parte de cada entrega que vai para este tanque (%) · quando a fábrica divide o gás entre 2 tanques',t:'number',full:1},
     {k:'capacidade',l:'Capacidade (ex.: 10.000 L, 190 kg)',t:'text',copa:1},
     {k:'modelo',l:'Tamanho/modelo',t:'text',copa:1},
     {k:'nivel',l:'Nível atual (%)',t:'number'},
@@ -1264,7 +1270,7 @@ function rotulo(col, r){
   if (col === 'contratos') return r.fornecedor || 'Contrato';
   if (col === 'gases') return r.nome || 'Gás sem nome';
   if (col === 'precos') return nomeGas(r.gasId) + (r.vigencia ? ' · vigência '+fdata(r.vigencia) : '');
-  if (col === 'tanques') return (r.codigo || 'Sem código') + ' · ' + nomeGas(r.gasId) + ' · ' + nomeUni(r.unidadeId);
+  if (col === 'tanques') return (tqRot(r) || 'Sem código') + ' · ' + nomeGas(r.gasId) + ' · ' + nomeUni(r.unidadeId);
   if (col === 'slas') return (r.gasId ? nomeGas(r.gasId) : 'Todos os gases') + ' · ' + (r.unidadeId ? nomeUni(r.unidadeId) : 'todas as fábricas');
   if (col === 'usos') return nomeGas(r.gasId) + ' · ' + nomeUni(r.unidadeId) + ' · ' + (r.aplicacao||'');
   if (col === 'pedidos') return nomeGas(r.gasId) + ' · ' + nomeUni(r.unidadeId) + ' · ' + fdata(r.data);
@@ -1522,7 +1528,7 @@ function cardTanque(t){
   const n = vazio(t.nivel) ? null : Math.max(0, Math.min(100, Number(t.nivel)));
   const low = n !== null && n < 30, fid = fornDeGas(t.gasId);
   return '<div class="tank'+(low?' low':'')+'"><div class="hd">'+gchip(t.gasId)+'<span class="pct">'+(n===null ? (ehPol(t) && !vazio(t.nivelPol) ? nf(t.nivelPol,1)+' pol' : '—') : nf(n)+'%')+'</span></div>'+(ehPol(t) ? '<div class="muted" style="font-size:12.5px;margin-top:-6px">Medidor em polegadas'+(!vazio(t.nivelPol) ? ': '+nf(t.nivelPol,1)+' pol' : '')+(pontosPol(t).length < 2 ? ' · <span class="await">conversão para % aguardando '+esc(nomeForn(fornDeGas(t.gasId)))+'</span>' : '')+'</div>' : '')+
-    '<div class="body">'+tanqueSvg(t, n, low)+'<div style="min-width:0;display:flex;flex-direction:column;gap:8px"><div class="mono">'+(t.codigo ? esc(t.codigo) : AW(fid))+EX(t)+'</div>'+
+    '<div class="body">'+tanqueSvg(t, n, low)+'<div style="min-width:0;display:flex;flex-direction:column;gap:8px">'+(t.uso ? '<div class="usotq">'+esc(t.uso)+'</div>' : '')+'<div class="mono">'+(t.codigo ? esc(t.codigo) : AW(fid))+EX(t)+'</div>'+
     (fotoViva(t.fotoId, t.ultimaLeitura) ? '<button class="thumb" data-act="hist" data-id="'+t.id+'" aria-label="Ver foto e histórico de leituras"><img src="'+blobSrc(t.fotoId)+'" alt="Foto da última leitura" loading="lazy"><span>Foto da leitura de '+fdata(t.ultimaLeitura)+'</span></button>' : '')+
     '<dl class="kv"><dt>Fábrica</dt><dd>'+fchip(t.unidadeId)+'</dd><dt>Fornecedor</dt><dd>'+esc(nomeForn(fid))+'</dd>'+
     '<dt>Capacidade</dt><dd>'+val(t.capacidade,AW(fid))+'</dd><dt>Modelo</dt><dd>'+val(t.modelo,AW(fid))+'</dd>'+
@@ -1615,7 +1621,7 @@ function vLeituras(){
     const p = pendL[t.id] || {};
     const n = vazio(t.nivel) ? null : Number(t.nivel), low = n !== null && n < 30, hoje = t.ultimaLeitura === HOJE;
     return '<div class="rrow panel'+(low?' low':'')+(hoje?' done':'')+'">'+tanqueSvg(t, n, low)+
-      '<div class="info"><div class="ln">'+fchip(t.unidadeId)+gchip(t.gasId)+'<span class="mono muted">'+esc(t.codigo || 'sem código')+'</span>'+EX(t)+'</div>'+
+      '<div class="info"><div class="ln">'+fchip(t.unidadeId)+gchip(t.gasId)+'<span class="mono muted">'+esc(tqRot(t) || 'sem código')+'</span>'+EX(t)+'</div>'+
       '<div class="muted" style="font-size:13px">Última leitura: '+(n === null && vazio(t.nivelPol) ? 'nenhuma' : '<b class="num" style="color:'+(low?'var(--red-ink)':'var(--fg)')+'">'+txtNivel(t, t)+'</b>'+(t.ultimaLeitura ? ' em '+fdata(t.ultimaLeitura) : ''))+
       (hoje ? ' <span class="pill open">Lido hoje</span>' : '')+(t.fotoId ? ' · <button class="linkbtn" data-act="hist" data-id="'+t.id+'">ver fotos</button>' : '')+'</div></div>'+
       '<div class="ent"><label class="pctin"><input type="text" inputmode="decimal" placeholder="'+(ehPol(t) ? 'Polegadas' : 'Nível')+'" data-rn="'+t.id+'" value="'+esc(p.nivel ?? '')+'" aria-label="Leitura de '+esc(nomeGas(t.gasId)+' '+nomeUni(t.unidadeId))+' em '+(ehPol(t) ? 'polegadas' : '%')+'"><span>'+(ehPol(t) ? 'pol' : '%')+'</span></label>'+
@@ -1718,6 +1724,19 @@ function grafConsumo(t, c){
     '<div class="clegend"><span><i class="sw" style="background:'+cor+'"></i>consumo no intervalo</span>'+(c.mediaRec!==null?'<span><i class="ln solid"></i>últimos '+JANELA+' dias: <b>'+nf(c.mediaRec,1)+' %/dia</b></span>':'')+(c.media!==null?'<span><i class="ln dash"></i>média geral: <b>'+nf(c.media,1)+' %/dia</b></span>':'')+'<span><i class="sw" style="background:var(--surface)"></i>abastecimento</span></div>'+
     '<p class="muted" style="margin:6px 0 0;font-size:12.5px">Cada barra é o intervalo entre duas leituras. Barras mais fortes são dos últimos '+JANELA+' dias. Intervalos em que o nível subiu contam como abastecimento e ficam fora da média.</p></div>';
 }
+function vDivisaoUso(tanks){
+  const grupos = {};
+  tanks.forEach(x => { const k = x.t.unidadeId+'|'+x.t.gasId; (grupos[k] ||= []).push(x); });
+  const gs = Object.values(grupos).filter(g => g.length > 1);
+  if (!gs.length) return '';
+  return '<section class="sec"><div><h3>Divisão por uso</h3><p class="muted" style="margin:4px 0 0;font-size:13px;max-width:70ch">Quando a fábrica divide o gás de uma entrega entre dois tanques, cada tanque tem o seu consumo. A parte de cada entrega é a que está no cadastro do tanque.</p></div><div class="grid">'+
+    gs.map(g => { const todosCap = g.every(x => x.c.cap && x.c.ritmo !== null) && new Set(g.map(x => x.c.cap.u)).size === 1;
+      const dia = x => todosCap ? x.c.ritmo/100*x.c.cap.v : null, tot = todosCap ? g.reduce((s,x) => s + dia(x), 0) : 0;
+      return '<div class="panel"><div class="sec-h" style="gap:8px">'+fchip(g[0].t.unidadeId)+gchip(g[0].t.gasId)+'</div><div class="list">'+g.sort((a,b) => fracTanque(b.t) - fracTanque(a.t)).map(x =>
+        '<div class="pend"><div class="t"><b>'+esc(x.t.uso || x.t.codigo || 'Tanque sem uso informado')+'</b><div class="muted" style="font-size:12.5px">recebe '+nf(fracTanque(x.t)*100)+'% de cada entrega</div></div><div style="text-align:right"><b class="num">'+(x.c.ritmo === null ? '—' : todosCap ? nf(dia(x), dia(x) < 10 ? 1 : 0)+' '+x.c.cap.u+'/dia' : nf(x.c.ritmo,1)+' %/dia')+'</b>'+(todosCap && tot ? '<div class="muted" style="font-size:12.5px">'+nf(dia(x)/tot*100)+'% do consumo</div>' : '')+'</div></div>').join('')+'</div>'+
+        (!todosCap ? '<p class="muted" style="margin:0;font-size:12.5px">Informe a capacidade dos tanques (ex.: 4.000 kg) para comparar em kg por dia.</p>' : '')+
+        (g.some(x => !x.t.uso) && ehAdm() ? '<p class="muted" style="margin:0;font-size:12.5px">Dica: informe o uso de cada tanque em Tanques.</p>' : '')+'</div>'; }).join('')+'</div></section>';
+}
 function vConsumo(){
   const tanks = S.tanques.filter(fabOk).map(t => ({t, c:consumo(t)}));
   const seg = !ehAdm() ? '<div>'+fchip(fab)+'</div>' : '<div class="gtabs" role="group" aria-label="Fábrica">'+[''].concat(ordenar('unidades',S.unidades).map(u => u.id)).map(id =>
@@ -1729,7 +1748,7 @@ function vConsumo(){
   const subiu = comDados.filter(x => x.c.variacao !== null && x.c.variacao >= 10).length;
   const resumo = comDados.length ? '<div class="panel cons">'+comDados.map(({t,c}) =>
     '<button class="crow" data-act="tsel" data-id="'+t.id+'" aria-pressed="'+(t.id===tanqueSel)+'">'+
-      '<span class="who">'+fchip(t.unidadeId)+gchip(t.gasId)+'<span class="mono muted">'+esc(t.codigo||'')+'</span>'+EX(t)+'</span>'+
+      '<span class="who">'+fchip(t.unidadeId)+gchip(t.gasId)+'<span class="mono muted">'+esc(tqRot(t))+'</span>'+EX(t)+'</span>'+
       '<span class="bar" style="--g:'+corGas(t.gasId)+'"><i style="transform:scaleX('+(c.ritmo/maxR)+')"></i>'+(c.mediaAnt ? '<s style="left:'+(c.mediaAnt/maxR*100)+'%" title="Média anterior: '+nf(c.mediaAnt,1)+' %/dia"></s>' : '')+'</span>'+
       '<span class="val"><b class="num">'+fmtTaxa(c.ritmo, c.cap)+'</b>'+pillVar(c.variacao)+'</span>'+
       '<span class="prev muted">'+(c.ate30 !== null ? 'chega a 30% em ~<b>'+nf(Math.max(0,c.ate30))+'</b> '+plural(Math.round(c.ate30),'dia','dias') : c.ateVazio !== null ? '<b style="color:var(--red-ink)">abaixo de 30%</b> · vazio em ~'+nf(c.ateVazio)+' dias' : '')+'</span>'+
@@ -1738,7 +1757,7 @@ function vConsumo(){
   const sel = tanks.find(x => x.t.id === tanqueSel);
   const kp = (l, v, cls) => '<div class="kpi'+(cls?' '+cls:'')+'"><span class="eyebrow">'+l+'</span><b>'+v+'</b></div>';
   const c = sel.c;
-  const detalhe = '<section class="panel"><div class="sec-h"><div><h2 style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'+fchip(sel.t.unidadeId)+gchip(sel.t.gasId, 1)+' <span class="mono muted" style="font-size:14px">'+esc(sel.t.codigo||'')+'</span></h2></div><span class="sp"></span>'+pillVar(c.variacao)+'</div>'+
+  const detalhe = '<section class="panel"><div class="sec-h"><div><h2 style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'+fchip(sel.t.unidadeId)+gchip(sel.t.gasId, 1)+' <span class="mono muted" style="font-size:14px">'+esc(tqRot(sel.t))+'</span></h2></div><span class="sp"></span>'+pillVar(c.variacao)+'</div>'+
     '<div class="kpis">'+kp('Média geral', c.media===null?'—':nf(c.media,1)+'<small> %/dia</small>')+kp('Últimos '+JANELA+' dias', c.mediaRec===null?'—':nf(c.mediaRec,1)+'<small> %/dia</small>', c.variacao!==null&&c.variacao>=10?'alert':'')+
       kp('Antes disso', c.mediaAnt===null?'—':nf(c.mediaAnt,1)+'<small> %/dia</small>')+(function(){ const p = previsao(sel.t, c); return kp('Comprar até', p && p.comprarAte ? (p.urgente ? 'já' : fdata(p.comprarAte).slice(0,5)+'<small> '+quandoTxt(p.comprarAte)+'</small>') : '—', p && p.comprarAte && diasAte(p.comprarAte) <= 7 ? 'alert' : ''); })()+kp('Chega a 30% em', c.ate30===null?(c.ateVazio!==null?'já abaixo':'—'):'~'+nf(Math.max(0,c.ate30))+'<small> dias</small>', c.ate30!==null&&c.ate30<=5||c.ate30===null&&c.ateVazio!==null?'alert':'')+'</div>'+
     (c.cap ? '<p class="muted" style="margin:0;font-size:13px">Capacidade '+esc(sel.t.capacidade)+': '+(c.ritmo!==null?'cerca de <b>'+nf(c.ritmo/100*c.cap.v, 0)+' '+c.cap.u+'</b> por dia no ritmo atual.':'')+'</p>' : '<p class="muted" style="margin:0;font-size:13px">Informe a capacidade do tanque (ex.: 4.000 kg) para ver o consumo em '+(medidaTxt(byId('gases',sel.t.gasId)?.medida)||'kg, L ou m³')+' por dia.</p>')+
@@ -1746,8 +1765,8 @@ function vConsumo(){
   return '<section class="sec"><div class="sec-h"><div><h2>Consumo dos tanques</h2><p class="muted" style="margin:4px 0 0;max-width:64ch">Calculado pelas leituras de nível: quanto cada tanque gasta por dia, a média e a mudança dos últimos '+JANELA+' dias em relação ao período anterior.</p></div><span class="sp"></span><a class="btn pri w" href="#leituras">Registrar leituras</a></div>'+seg+'</section>'+
     (subiu ? '<div class="banner red alerts" role="alert"><b>Atenção</b><ul><li>'+subiu+' '+plural(subiu,'tanque está','tanques estão')+' consumindo 10% ou mais acima da média anterior.</li></ul></div>' : '')+
     '<section class="sec"><div class="sec-h"><h3>Ritmo atual por tanque</h3><span class="sp"></span><span class="muted" style="font-size:12.5px">Barra: últimos '+JANELA+' dias · traço: média anterior. Toque para ver o gráfico.</span></div>'+resumo+
-    (semDados.length ? '<p class="muted" style="margin:0;font-size:13px">Sem leituras suficientes: '+semDados.map(x => esc(nomeGas(x.t.gasId)+' '+nomeUni(x.t.unidadeId))).join(', ')+'.</p>' : '')+'</section>'+
-    detalhe;
+    (semDados.length ? '<p class="muted" style="margin:0;font-size:13px">Sem leituras suficientes: '+semDados.map(x => esc(nomeGas(x.t.gasId)+' '+nomeUni(x.t.unidadeId)+(x.t.uso ? ' · '+x.t.uso : ''))).join(', ')+'.</p>' : '')+'</section>'+
+    vDivisaoUso(tanks)+detalhe;
 }
 
 
@@ -1854,7 +1873,7 @@ function vCentral(){
     if (st === 'alterado') alertas.push('O operador alterou este envio depois da sua aprovação.');
     return '<div class="rev panel">'+
       '<a class="ph" href="'+blobSrc(i.fotoId)+'" target="_blank" rel="noopener"><img src="'+blobSrc(i.fotoId)+'" alt="Foto do medidor enviada por '+esc(pessoa(i._uid))+'" loading="lazy"></a>'+
-      '<div class="bd"><div class="ln">'+(t ? fchip(t.unidadeId)+gchip(t.gasId)+'<span class="mono muted">'+esc(t.codigo||'')+'</span>' : '<span class="muted">Tanque removido</span>')+'</div>'+
+      '<div class="bd"><div class="ln">'+(t ? fchip(t.unidadeId)+gchip(t.gasId)+'<span class="mono muted">'+esc(tqRot(t))+'</span>' : '<span class="muted">Tanque removido</span>')+'</div>'+
       '<div class="big2"><b class="num"'+(n !== null && n<30?' style="color:var(--red-ink)"':'')+'>'+(t ? txtNivel(t, i) : nf(i.nivel)+'%')+'</b>'+(ant ? '<span class="muted">antes: '+(t ? txtNivel(t, ant) : nf(ant.nivel)+'%')+' em '+fdata(ant.data)+'</span>' : '<span class="muted">primeira leitura deste tanque</span>')+'</div>'+
       (alertas.length ? '<ul class="avs">'+alertas.map(a => '<li>'+esc(a)+'</li>').join('')+'</ul>' : '')+
       (i.obs ? '<p class="obs">'+esc(i.obs)+'</p>' : '')+
@@ -1865,7 +1884,7 @@ function vCentral(){
     const t = i.tanqueId ? byId('tanques', i.tanqueId) : null;
     return '<div class="rev panel">'+
       '<a class="ph" href="'+blobSrc(i.fotoId)+'" target="_blank" rel="noopener"><img src="'+blobSrc(i.fotoId)+'" alt="Foto do aviso" loading="lazy"></a>'+
-      '<div class="bd"><div class="ln"><span class="pill warn">'+esc(CAT_TXT[i.categoria]||'Aviso')+'</span>'+(i.unidadeId ? fchip(i.unidadeId) : '')+(t ? gchip(t.gasId)+'<span class="mono muted">'+esc(t.codigo||'')+'</span>' : '')+'</div>'+
+      '<div class="bd"><div class="ln"><span class="pill warn">'+esc(CAT_TXT[i.categoria]||'Aviso')+'</span>'+(i.unidadeId ? fchip(i.unidadeId) : '')+(t ? gchip(t.gasId)+'<span class="mono muted">'+esc(tqRot(t))+'</span>' : '')+'</div>'+
       '<p class="obs" style="font-size:15px;color:var(--fg)">'+esc(i.texto||'')+'</p>'+
       '<div class="muted meta">Enviado por <b>'+esc(pessoa(i._uid))+'</b> · '+fdh(i.criadoEm)+'</div>'+
       '<div class="tools"><button class="btn pri" data-act="visto" data-uid="'+esc(i._uid)+'" data-id="'+esc(i.id)+'">Marcar como visto</button></div></div></div>';
@@ -1891,7 +1910,7 @@ function vCentral(){
     '<section class="sec"><h3>Avisos da equipe</h3>'+(avisos.length ? '<div class="revs">'+avisos.map(cardAviso).join('')+'</div>'
       : '<div class="empty">Nenhum aviso novo. Entregas recebidas, vazamentos e outros problemas enviados pela equipe aparecem aqui.</div>')+'</section>'+
     '<section class="sec"><h3>Tanques sem leitura há mais de 3 dias'+fabTag()+'</h3>'+(semLeitura.length ? tabela([
-      {h:'Fábrica', f:t => fchip(t.unidadeId)}, {h:'Gás', f:t => gchip(t.gasId)}, {h:'Código', f:t => '<span class="mono">'+esc(t.codigo||'—')+'</span>'+EX(t)},
+      {h:'Fábrica', f:t => fchip(t.unidadeId)}, {h:'Gás', f:t => gchip(t.gasId)}, {h:'Uso', f:t => t.uso ? esc(t.uso)+(irmaos(t).length > 1 ? '<div class="muted" style="font-size:12px">'+nf(fracTanque(t)*100)+'% de cada entrega</div>' : '') : '<span class="muted">—</span>'}, {h:'Código', f:t => '<span class="mono">'+esc(t.codigo||'—')+'</span>'+EX(t)},
       {h:'Última leitura', f:t => t.ultimaLeitura ? fdata(t.ultimaLeitura)+' <span class="muted">('+diff(t.ultimaLeitura,HOJE)+' dias)</span>' : '<span class="await">nunca</span>'},
     ], semLeitura) : '<div class="empty">Todos os tanques foram lidos nos últimos 3 dias.</div>')+'</section>'+
     '<section class="sec"><div><h3>Responsáveis por fábrica</h3><p class="muted" style="margin:4px 0 0;font-size:13px;max-width:70ch">Cada pessoa vê e envia dados só da fábrica dela. O cadastro (e-mail da empresa e fábrica) fica na aba <a href="#usuarios">Usuários</a>.</p></div>'+
@@ -2015,6 +2034,20 @@ function quandoTxt(d){
   return 'em '+n+' dias';
 }
 
+/* ---------- TANQUES COM USO (um gás dividido entre tanques da mesma fábrica) ---------- */
+const tqRot = t => !t ? '' : [t.uso, t.codigo].filter(Boolean).join(' · ');
+const irmaos = t => S.tanques.filter(x => x.gasId === t.gasId && x.unidadeId === t.unidadeId);
+/* fração de cada entrega que vai para o tanque */
+function fracTanque(t){
+  const ir = irmaos(t); if (ir.length <= 1) return 1;
+  const def = ir.filter(x => numOu(x.parteAbastecimento) !== null), soma = def.reduce((s,x) => s + Number(x.parteAbastecimento), 0);
+  const v = numOu(t.parteAbastecimento);
+  if (v !== null) return Math.max(0, Math.min(100, v))/100;
+  const resto = Math.max(0, 100 - soma), faltam = ir.length - def.length;
+  return faltam ? resto/faltam/100 : 0;
+}
+const divisaoPedido = p => { const ts = S.tanques.filter(t => t.gasId === p.gasId && t.unidadeId === p.unidadeId); return ts.length > 1 ? ts.map(t => ({t, f: fracTanque(t)})).sort((a,b) => b.f - a.f) : []; };
+
 /* ---------- CALENDÁRIO DE COMPRAS ---------- */
 function motivoSemPrev(t, c){
   if (vazio(t.nivel) && ehPol(t) && (t.nivelPol !== undefined && !vazio(t.nivelPol))) return 'medidor em polegadas sem conversão. Informe no tanque quantas polegadas marca cheio (ou a tabela do fornecedor) para virar %.';
@@ -2052,7 +2085,7 @@ function vCalendario(){
     const u = byId('unidades', e.t.unidadeId);
     if (e.tipo === 'entrega') return '<a class="ev entrega'+(e.feita?' feita':'')+(e.atrasado?' atr':'')+'" href="#pedidos" title="'+esc(entLbl(e)+': '+nomeGas(e.t.gasId)+' '+(u?u.nome:'')+(vazio(e.ped.quantidade)?'':' · '+nf(e.ped.quantidade)))+'">'+svgIc(v.ic, 12)+'<span>'+(e.feita?'Entregue':'Entrega')+' · '+esc(u ? u.nome : '')+'</span></a>';
     const lbl = e.tipo === 'comprar' ? 'Comprar' : e.tipo === '30' ? '30%' : 'Vazio';
-    return '<button class="ev '+e.tipo+(e.atrasado?' atr':'')+'" style="--g:'+v.cor+'" data-act="tsel2" data-id="'+e.t.id+'" title="'+esc(lbl+': '+nomeGas(e.t.gasId)+' '+(u?u.nome:'')+(e.t.codigo?' · '+e.t.codigo:''))+'">'+svgIc(v.ic, 12)+'<span>'+lbl+' · '+esc(u ? u.nome : '')+'</span></button>';
+    return '<button class="ev '+e.tipo+(e.atrasado?' atr':'')+'" style="--g:'+v.cor+'" data-act="tsel2" data-id="'+e.t.id+'" title="'+esc(lbl+': '+nomeGas(e.t.gasId)+' '+(u?u.nome:'')+(tqRot(e.t)?' · '+tqRot(e.t):''))+'">'+svgIc(v.ic, 12)+'<span>'+lbl+' · '+esc(u ? u.nome : '')+'</span></button>';
   };
   let cells = '';
   ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'].forEach(d => cells += '<div class="cwd">'+d+'</div>');
@@ -2068,7 +2101,7 @@ function vCalendario(){
   const proximas = comP.filter(x => x.p.comprarAte).sort((a,b) => a.p.comprarAte.localeCompare(b.p.comprarAte));
   const urg = proximas.filter(x => diasAte(x.p.comprarAte) <= 7);
   const tbl = proximas.length ? tabela([
-    {h:'Tanque', f:x => '<span style="display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center">'+fchip(x.t.unidadeId)+gchip(x.t.gasId)+EX(x.t)+'</span>'},
+    {h:'Tanque', f:x => '<span style="display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center">'+fchip(x.t.unidadeId)+gchip(x.t.gasId)+(tqRot(x.t) ? '<b style="font-size:13px">'+esc(tqRot(x.t))+'</b>' : '')+EX(x.t)+'</span>'},
     {h:'Comprar até', f:x => '<b'+(diasAte(x.p.comprarAte)<=7?' style="color:var(--red-ink)"':'')+'>'+fdata(x.p.comprarAte < HOJE ? HOJE : x.p.comprarAte)+'</b><div class="muted" style="font-size:12px">'+(x.p.urgente ? 'pedir já' : quandoTxt(x.p.comprarAte))+'</div>'},
     {h:'Chega a 30%', f:x => fdata(x.p.d30)+'<div class="muted" style="font-size:12px">'+quandoTxt(x.p.d30)+'</div>'},
     {h:'Acaba', f:x => x.p.d0 ? fdata(x.p.d0)+'<div class="muted" style="font-size:12px">'+quandoTxt(x.p.d0)+'</div>' : '<span class="muted">+18 meses</span>'},
@@ -2080,19 +2113,24 @@ function vCalendario(){
     '<div class="saz">'+MESES.map((nm,i) => '<label class="szm'+(INVERNO.includes(i+1)?' inv':'')+'"><span>'+nm+'</span><input type="number" step="1" data-saz="'+i+'" value="'+aj[i]+'" aria-label="Ajuste de '+nm+' em %"'+(ehAdm()?'':' disabled')+'><i>%</i></label>').join('')+'</div>'+
     '<div class="tools w" style="justify-content:flex-end"><button class="btn ghost" data-act="sazpadrao">Voltar ao padrão</button><button class="btn pri" data-act="sazsalvar">Salvar ajustes</button></div></section>';
   return '<section class="sec"><div class="sec-h"><div><h2>Calendário de compras</h2><p class="muted" style="margin:4px 0 0;max-width:70ch">Mostra as entregas dos pedidos (data real ou prevista pelo prazo do contrato) e a previsão de compra pelo ritmo de consumo de cada tanque, com ajuste de inverno. A data de compra já desconta o prazo de entrega do fornecedor para o gás chegar antes de o tanque cair abaixo de 30%.</p></div></div></section>'+
-    (urg.length ? '<div class="banner red alerts" role="alert"><b>Comprar logo</b><ul>'+urg.map(x => '<li>'+esc(nomeGas(x.t.gasId)+' '+nomeUni(x.t.unidadeId))+': '+(x.p.urgente ? 'pedir já' : 'até '+fdata(x.p.comprarAte))+'</li>').join('')+'</ul></div>' : '')+
+    (urg.length ? '<div class="banner red alerts" role="alert"><b>Comprar logo</b><ul>'+urg.map(x => '<li>'+esc(nomeGas(x.t.gasId)+' '+nomeUni(x.t.unidadeId)+(x.t.uso ? ' · '+x.t.uso : ''))+': '+(x.p.urgente ? 'pedir já' : 'até '+fdata(x.p.comprarAte))+'</li>').join('')+'</ul></div>' : '')+
     '<section class="panel cal"><div class="sec-h calh"><button class="btn sm" data-act="calmes" data-id="-1" aria-label="Mês anterior">‹</button><h3 class="cm">'+esc(nomeMes)+(inv ? ' <span class="pill ice">'+svgIc('snow',12)+'inverno · consumo +'+aj[m-1]+'%</span>' : aj[m-1] ? ' <span class="pill">ajuste '+(aj[m-1]>0?'+':'')+aj[m-1]+'%</span>' : '')+'</h3><button class="btn sm" data-act="calmes" data-id="1" aria-label="Próximo mês">›</button><span class="sp"></span>'+(calMes !== HOJE.slice(0,7) ? '<button class="btn sm ghost" data-act="calmes" data-id="0">Hoje</button>' : '')+'</div>'+
     '<div class="calgrid">'+cells+'</div>'+
     '<div class="clegend"><span><i class="sw" style="background:var(--red)"></i>data-limite para comprar</span><span><i class="sw" style="background:oklch(0.55 0.13 245)"></i>entrega de pedido</span><span><i class="sw" style="background:oklch(0.8 0.12 75)"></i>chega a 30%</span><span><i class="sw" style="background:var(--fg)"></i>tanque vazio (sem compra)</span><span><i class="sw" style="background:color-mix(in oklab,var(--g-ar) 18%,var(--card))"></i>inverno</span></div></section>'+
-    (doMes.length ? '<section class="sec"><h3>Agenda de '+esc(nomeMes)+'</h3><div class="list">'+doMes.map(e => '<div class="pend"><div class="d" style="text-align:left;min-width:64px"><b>'+e.d.slice(8)+'</b>'+esc(MESES[Number(e.d.slice(5,7))-1])+'</div><div class="t" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pill '+(e.tipo==='entrega'?(e.atrasado?'bad':'ice'):e.tipo==='comprar'?'bad':e.tipo==='30'?'warn':'open')+'">'+(e.tipo==='entrega'?entLbl(e):e.tipo==='comprar'?(e.atrasado?'Comprar já (atrasado)':'Comprar até hoje'.replace(' hoje','')):e.tipo==='30'?'Chega a 30%':'Tanque vazio')+'</span>'+fchip(e.t.unidadeId)+gchip(e.t.gasId)+'<span class="mono muted">'+esc(e.t.codigo||'')+'</span>'+(e.tipo==='comprar' && e.p.qtd ? '<span class="muted">~'+nf(e.p.qtd.v)+' '+e.p.qtd.u+'</span>' : '')+(e.tipo==='entrega' ? '<span class="muted">pedido de '+fdata(e.ped.data)+(vazio(e.ped.quantidade)?'':' · '+nf(e.ped.quantidade)+' '+esc(medidaTxt((byId('gases',e.ped.gasId)||{}).medida)))+(e.padrao?' · prazo padrão de '+PRAZO_PADRAO+' dias ('+esc(nomeForn(fornDeGas(e.ped.gasId)))+' ainda não informou o prazo)':e.prevista?' · pelo prazo do contrato':'')+'</span>'+EX(e.ped) : '')+'</div></div>').join('')+'</div></section>' : '')+
+    (doMes.length ? '<section class="sec"><h3>Agenda de '+esc(nomeMes)+'</h3><div class="list">'+doMes.map(e => '<div class="pend"><div class="d" style="text-align:left;min-width:64px"><b>'+e.d.slice(8)+'</b>'+esc(MESES[Number(e.d.slice(5,7))-1])+'</div><div class="t" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pill '+(e.tipo==='entrega'?(e.atrasado?'bad':'ice'):e.tipo==='comprar'?'bad':e.tipo==='30'?'warn':'open')+'">'+(e.tipo==='entrega'?entLbl(e):e.tipo==='comprar'?(e.atrasado?'Comprar já (atrasado)':'Comprar até hoje'.replace(' hoje','')):e.tipo==='30'?'Chega a 30%':'Tanque vazio')+'</span>'+fchip(e.t.unidadeId)+gchip(e.t.gasId)+'<span class="mono muted">'+esc(tqRot(e.t))+'</span>'+(e.tipo==='comprar' && e.p.qtd ? '<span class="muted">~'+nf(e.p.qtd.v)+' '+e.p.qtd.u+'</span>' : '')+(e.tipo==='entrega' ? '<span class="muted">pedido de '+fdata(e.ped.data)+(vazio(e.ped.quantidade)?'':' · '+nf(e.ped.quantidade)+' '+esc(medidaTxt((byId('gases',e.ped.gasId)||{}).medida)))+(e.padrao?' · prazo padrão de '+PRAZO_PADRAO+' dias ('+esc(nomeForn(fornDeGas(e.ped.gasId)))+' ainda não informou o prazo)':e.prevista?' · pelo prazo do contrato':'')+'</span>'+EX(e.ped) : '')+'</div></div>').join('')+'</div></section>' : '')+
     '<section class="sec"><h3>Próximas compras'+fabTag()+'</h3>'+tbl+
-    (semP.length ? '<div class="banner alerts"><b>Fora do calendário</b><ul>'+semP.map(x => '<li><b>'+esc(nomeGas(x.t.gasId)+' '+nomeUni(x.t.unidadeId))+(x.t.codigo ? ' · '+esc(x.t.codigo) : '')+'</b>: '+motivoSemPrev(x.t, x.c)+(ehAdm() && ehPol(x.t) && vazio(x.t.nivel) ? ' <button class="btn sm ghost" data-act="edit" data-col="tanques" data-id="'+x.t.id+'">Editar tanque</button>' : '')+'</li>').join('')+'</ul></div>' : '')+
+    (semP.length ? '<div class="banner alerts"><b>Fora do calendário</b><ul>'+semP.map(x => '<li><b>'+esc(nomeGas(x.t.gasId)+' '+nomeUni(x.t.unidadeId))+(tqRot(x.t) ? ' · '+esc(tqRot(x.t)) : '')+'</b>: '+motivoSemPrev(x.t, x.c)+(ehAdm() && ehPol(x.t) && vazio(x.t.nivel) ? ' <button class="btn sm ghost" data-act="edit" data-col="tanques" data-id="'+x.t.id+'">Editar tanque</button>' : '')+'</li>').join('')+'</ul></div>' : '')+
     '<p class="muted" style="margin:0;font-size:12.5px">Quantidade sugerida: o necessário para voltar de 30% a '+ALVO_ENCHER+'% do tanque. Quando o fornecedor não informou o prazo de entrega, o cálculo usa '+PRAZO_PADRAO+' dias.</p></section>'+
     ajEditor;
 }
 
 
 
+function divisaoTxt(p){
+  const d = divisaoPedido(p); if (!d.length) return '';
+  const q = Number(p.quantidade), v = Number(p.valor);
+  return '<div class="divped">'+d.map(x => '<span><b>'+esc(x.t.uso || x.t.codigo || 'tanque')+'</b> '+nf(x.f*100)+'%'+(q > 0 ? ' · '+nf(q*x.f)+' '+esc(medidaTxt((byId('gases',p.gasId)||{}).medida)) : '')+(v > 0 ? ' · '+brl(v*x.f) : '')+'</span>').join('')+'</div>';
+}
 /* ---------- PEDIDO -> PAGAMENTO E PREÇO (automático) ---------- */
 /* Pedido com valor e data de pagamento lança o pagamento na conta corrente do fornecedor;
    pedido com valor e quantidade lança o preço por unidade na tabela de preços. Falta só a nota. */
@@ -2476,7 +2514,7 @@ function conferencias(){
       const ini = addDias(r.ini, -1), fim = addDias(r.fim, 2);
       const peds = S.pedidos.filter(p => p.gasId === t.gasId && p.unidadeId === t.unidadeId && (p.dataEntrega || p.data) >= ini && (p.dataEntrega || p.data) <= fim)
         .sort((a,b) => Math.abs(diff(a.dataEntrega||a.data, r.fim)) - Math.abs(diff(b.dataEntrega||b.data, r.fim)));
-      const p = peds[0] || null, fat = p && !vazio(p.quantidade) ? Number(p.quantidade) : null;
+      const p = peds[0] || null, fr = fracTanque(t), fat = p && !vazio(p.quantidade) ? Number(p.quantidade)*fr : null;
       let st, dif = null;
       const chave = t.id+'~'+r.fim, dec = byId('conferencias', chave);
       if (!p) st = 'sempedido';
@@ -2569,7 +2607,7 @@ function vPedidos(){
     {h:'Pedido', f:x => fdata(x.p.data)+EX(x.p)},
     {h:'Gás', f:x => gchip(x.p.gasId)+'<div class="muted" style="font-size:12px;margin-top:3px">'+esc(nomeForn(fornDeGas(x.p.gasId)))+'</div>'},
     {h:'Fábrica', f:x => fchip(x.p.unidadeId)},
-    {h:'Qtd.', n:1, f:x => vazio(x.p.quantidade) ? '—' : nf(x.p.quantidade,2)+' '+esc(medidaTxt(byId('gases',x.p.gasId)?.medida))},
+    {h:'Qtd.', n:1, f:x => (vazio(x.p.quantidade) ? '—' : nf(x.p.quantidade,2)+' '+esc(medidaTxt(byId('gases',x.p.gasId)?.medida)))+divisaoTxt(x.p)},
     {h:'Pagamento', f:x => (x.p.antecipado==='sim' ? 'Antecipado' : 'Normal')+(x.p.dataConfPagamento?'<br><span class="muted">pago '+fdata(x.p.dataConfPagamento)+'</span>':'')},
     {h:'Entrega', f:x => x.p.dataEntrega ? fdata(x.p.dataEntrega) : '<span class="muted">—</span>'},
     {h:'Atendimento × prazo', f:x => x.a.dias===undefined ? '—' : '<span class="num">'+x.a.dias+' d</span> <span class="muted">× '+(x.a.prazo ?? '?')+' d</span><br><span class="muted" style="font-size:12px">desde o '+x.a.base+'</span>'},
@@ -3239,7 +3277,7 @@ function membros(){
 function montarVisao(fid){
   const u = fid && byId('unidades', fid);
   if (!u) return {fabricaId:''};
-  const tanques = S.tanques.filter(t => t.unidadeId === fid).map(t => ({id:t.id, gasId:t.gasId, unidadeId:t.unidadeId, codigo:t.codigo||'', capacidade:t.capacidade||'', modelo:t.modelo||'', nivel:vazio(t.nivel)?'':Number(t.nivel), nivelPol:vazio(t.nivelPol)?'':Number(t.nivelPol), unidadeLeitura:t.unidadeLeitura||'', polCheio:vazio(t.polCheio)?'':Number(t.polCheio), tabelaPol:t.tabelaPol||'', ultimaLeitura:t.ultimaLeitura||'', fotoId:t.fotoId||'', exemplo:!!t.exemplo}));
+  const tanques = S.tanques.filter(t => t.unidadeId === fid).map(t => ({id:t.id, gasId:t.gasId, unidadeId:t.unidadeId, codigo:t.codigo||'', uso:t.uso||'', capacidade:t.capacidade||'', modelo:t.modelo||'', nivel:vazio(t.nivel)?'':Number(t.nivel), nivelPol:vazio(t.nivelPol)?'':Number(t.nivelPol), unidadeLeitura:t.unidadeLeitura||'', polCheio:vazio(t.polCheio)?'':Number(t.polCheio), tabelaPol:t.tabelaPol||'', ultimaLeitura:t.ultimaLeitura||'', fotoId:t.fotoId||'', exemplo:!!t.exemplo}));
   const ids = new Set(tanques.map(t => t.id));
   const gids = new Set(tanques.map(t => t.gasId).concat(S.usos.filter(x => x.unidadeId === fid).map(x => x.gasId)));
   const gases = S.gases.filter(g => gids.has(g.id)).map(g => ({id:g.id, nome:g.nome, medida:g.medida||''}));

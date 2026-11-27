@@ -27,7 +27,7 @@ begin
         'fabrica', (select jsonb_build_object('id', u2.id, 'nome', u2.data->>'nome', 'icone', coalesce(u2.data->>'icone', '')) from public.docs u2 where u2.col = 'unidades' and u2.id = fab),
         'tanques', coalesce((select jsonb_agg(jsonb_build_object(
             'id', t.id, 'gasId', t.data->>'gasId', 'unidadeId', t.data->>'unidadeId',
-            'codigo', coalesce(t.data->>'codigo', ''), 'capacidade', coalesce(t.data->>'capacidade', ''), 'modelo', coalesce(t.data->>'modelo', ''),
+            'codigo', coalesce(t.data->>'codigo', ''), 'uso', coalesce(t.data->>'uso', ''), 'parteAbastecimento', coalesce(t.data->'parteAbastecimento', '""'::jsonb), 'capacidade', coalesce(t.data->>'capacidade', ''), 'modelo', coalesce(t.data->>'modelo', ''),
             'nivel', coalesce(t.data->'nivel', '""'::jsonb), 'nivelPol', coalesce(t.data->'nivelPol', '""'::jsonb),
             'unidadeLeitura', coalesce(t.data->>'unidadeLeitura', ''), 'polCheio', coalesce(t.data->'polCheio', '""'::jsonb), 'tabelaPol', coalesce(t.data->>'tabelaPol', ''),
             'ultimaLeitura', coalesce(t.data->>'ultimaLeitura', ''), 'fotoId', coalesce(t.data->>'fotoId', ''), 'exemplo', coalesce((t.data->>'exemplo')::boolean, false)) order by t.id)

@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
     const nomeU = (id: string) => (unidades.find((u) => u.id === id)?.data?.nome) || id;
     const nomeG = (id: string) => (gases.find((g) => g.id === id)?.data?.nome) || id;
     const fdata = (s: string) => (s ? s.slice(8, 10) + "/" + s.slice(5, 7) : "");
-    const linha = (t: any) => `${nomeU(t.unidadeId)} · ${nomeG(t.gasId)}: ${Math.round(t.n)}%` + (t.ultimaLeitura ? ` (leitura de ${fdata(t.ultimaLeitura)})` : "");
+    const linha = (t: any) => `${nomeU(t.unidadeId)} · ${nomeG(t.gasId)}${t.uso ? " (" + t.uso + ")" : ""}: ${Math.round(t.n)}%` + (t.ultimaLeitura ? ` (leitura de ${fdata(t.ultimaLeitura)})` : "");
 
     const lista: any[] = Array.isArray(cfg("usuarios").lista) ? cfg("usuarios").lista : [];
     const { data: donos } = await sb.from("donos").select("email");
