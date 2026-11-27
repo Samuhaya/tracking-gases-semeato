@@ -24,8 +24,8 @@ if '/_blob/' in s:
     sys.exit('Ainda há /_blob/ no código: ' + s[s.index('/_blob/')-80:s.index('/_blob/')+40])
 
 # Gancho para redesenhar depois de assinar fotos
-rep("window.addEventListener('hashchange', () => { render(); window.scrollTo(0,0); });",
-    "window.addEventListener('hashchange', () => { render(); window.scrollTo(0,0); });\nwindow.__render = render;")
+rep("window.addEventListener('hashchange', () => { render(); rolarTopo(); });",
+    "window.addEventListener('hashchange', () => { render(); rolarTopo(); });\nwindow.__render = render;")
 
 # Link e QR code
 rep("const LINK_APP = 'https://claude.ai/artifact/1yV3Z5Kre8B4KuKrTSkwSJ';", "const LINK_APP = location.origin + location.pathname;")
@@ -78,12 +78,12 @@ rep("""  else if (act === 'usrativo'){""", """  else if (act === 'usrsenha') cri
 rep("async function sincronizarVisoes(){\n  if (papel !== 'adm'", "async function sincronizarVisoes(){ return; /* feito no servidor */\n  if (papel !== 'adm'")
 
 # Documento completo para GitHub Pages
-head = """<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+head = """<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover,interactive-widget=resizes-content">
 <meta name="theme-color" content="#F5F5F7"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png">
-<meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Tracking Gases">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="default"><meta name="format-detection" content="telephone=no"><meta name="apple-mobile-web-app-title" content="Tracking Gases">
 <style>:root{padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px);color-scheme:light}body{margin:0;font:14px/1.45 system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
 </head><body>
 """
-s = head + s + "\n<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{});}</script>\n</body></html>\n"
+s = head + s + "\n<script>['gesturestart','gesturechange'].forEach(t=>document.addEventListener(t,e=>e.preventDefault(),{passive:false}));</script>\n<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(()=>{});}</script>\n</body></html>\n"
 OUT.write_text(s)
 print('ok', len(s))
