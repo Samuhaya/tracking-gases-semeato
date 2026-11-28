@@ -867,6 +867,9 @@ button.gchip[aria-pressed="true"] svg{color:var(--g)}
 }
 
 /* ---------- USO DO TANQUE ---------- */
+.abchk{display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;color:var(--fg);align-self:center}
+.abchk input{width:18px;height:18px;accent-color:var(--red)}
+.kgin input{width:110px}
 .usotq{font-weight:700;font-size:15px;color:var(--fg)}
 .divped{display:flex;flex-direction:column;gap:2px;margin-top:4px;font-size:12px;color:var(--muted);text-align:right}
 .divped b{color:var(--fg);font-weight:600}
@@ -1582,11 +1585,11 @@ function lerEntrada(t, txt){
 /* ---------- ATUALIZAR TANQUES (ronda de leitura) ---------- */
 const pendL = {};
 const CAM = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l1.6-2.4h6.8L17 8h3v11H4Z"/><circle cx="12" cy="13.2" r="3.6"/></svg>';
-async function gravarLeitura(t, nivel, data, arq, obs, nivelPol){
+async function gravarLeitura(t, nivel, data, arq, obs, nivelPol, abastKg){
   nivelPol = vazio(nivelPol) ? '' : Number(nivelPol);
   let fotoId = '';
   if (arq){ const c = await comprimir(arq); fotoId = (await assets.upload(c.blob, {type:c.type})).id; }
-  await db.collection('leituras').add({tanqueId:t.id, nivel, nivelPol, data, fotoId, obs:obs||'', exemplo:false});
+  await db.collection('leituras').add({tanqueId:t.id, nivel, nivelPol, data, fotoId, obs:obs||'', abastKg: vazio(abastKg) ? '' : Number(abastKg), exemplo:false});
   if (!t.ultimaLeitura || data >= t.ultimaLeitura) await db.collection('tanques').doc(t.id).update({nivel, nivelPol, ultimaLeitura:data, fotoId});
 }
 async function salvarRonda(id){
@@ -1595,13 +1598,23 @@ async function salvarRonda(id){
   const ent = lerEntrada(t, p.nivel), nivel = ent.nivel, nivelPol = ent.nivelPol;
   if (ent.erro){ toast(ent.erro, 1); const i = document.querySelector('[data-rn="'+id+'"]'); i && i.focus(); return; }
   if (!p.file){ toast('A foto do medidor é obrigatória. Tire a foto antes de enviar.', 1); return; }
+  let abastKg = '';
+  if (!p.abast && ehPrincipal(t) && !vazio(nivel) && !vazio(t.nivel) && Number(nivel) > Number(t.nivel) + 10){
+    toast('O nível subiu de '+nf(t.nivel)+'% para '+nf(nivel)+'%. Se teve abastecimento, marque "Teve abastecimento" e informe os kg.', 1);
+    p.abast = true; pendL[id] = p; render(); return;
+  }
+  if (p.abast){
+    const k = Number(String(p.kg ?? '').replace(/\./g,'').replace(',','.'));
+    if (!(k > 0)){ toast('Informe quantos kg entraram neste tanque no abastecimento.', 1); const i = document.querySelector('[data-rk="'+id+'"]'); i && i.focus(); return; }
+    abastKg = k;
+  }
   p.saving = true; pendL[id] = p; render();
   try {
-    if (ehAdm()) await gravarLeitura(t, nivel, HOJE, p.file, '', nivelPol);
-    else await enviarItem({tipo:'leitura', tanqueId:t.id, nivel, nivelPol, obs:''}, p.file);
+    if (ehAdm()) await gravarLeitura(t, nivel, HOJE, p.file, '', nivelPol, abastKg);
+    else await enviarItem({tipo:'leitura', tanqueId:t.id, nivel, nivelPol, abastKg, obs:''}, p.file);
     if (p.url) URL.revokeObjectURL(p.url);
     delete pendL[id];
-    toast(nomeGas(t.gasId)+' · '+nomeUni(t.unidadeId)+': '+(ehPol(t) ? nf(nivelPol,1)+' pol' : nf(nivel)+'%')+' '+(ehAdm() ? 'salvo' : 'enviado para aprovação'));
+    toast(nomeGas(t.gasId)+' · '+nomeUni(t.unidadeId)+': '+(ehPol(t) ? nf(nivelPol,1)+' pol' : nf(nivel)+'%')+(abastKg ? ' · abastecido '+nf(abastKg)+' kg' : '')+' '+(ehAdm() ? 'salvo' : 'enviado para aprovação'));
   } catch(err){
     p.saving = false; render();
     if (!ehAdm()) erroEnvio(err);
@@ -1625,6 +1638,7 @@ function vLeituras(){
       '<div class="muted" style="font-size:13px">Última leitura: '+(n === null && vazio(t.nivelPol) ? 'nenhuma' : '<b class="num" style="color:'+(low?'var(--red-ink)':'var(--fg)')+'">'+txtNivel(t, t)+'</b>'+(t.ultimaLeitura ? ' em '+fdata(t.ultimaLeitura) : ''))+
       (hoje ? ' <span class="pill open">Lido hoje</span>' : '')+(t.fotoId ? ' · <button class="linkbtn" data-act="hist" data-id="'+t.id+'">ver fotos</button>' : '')+'</div></div>'+
       '<div class="ent"><label class="pctin"><input type="text" inputmode="decimal" placeholder="'+(ehPol(t) ? 'Polegadas' : 'Nível')+'" data-rn="'+t.id+'" value="'+esc(p.nivel ?? '')+'" aria-label="Leitura de '+esc(nomeGas(t.gasId)+' '+nomeUni(t.unidadeId))+' em '+(ehPol(t) ? 'polegadas' : '%')+'"><span>'+(ehPol(t) ? 'pol' : '%')+'</span></label>'+
+      (ehPrincipal(t) ? '<label class="abchk"><input type="checkbox" data-ra="'+t.id+'"'+(p.abast?' checked':'')+'> Teve abastecimento</label>'+(p.abast ? '<label class="pctin kgin"><input type="text" inputmode="decimal" placeholder="kg que entrou" data-rk="'+t.id+'" value="'+esc(p.kg ?? '')+'" aria-label="kg que entraram neste tanque"><span>kg</span></label>' : '') : '')+
       (meuEnvioHoje(t) ? '<span class="pill warn" style="align-self:center">Enviado hoje: '+nf(meuEnvioHoje(t).nivel)+'% · '+ST_TXT[statusItem(meuEnvioHoje(t))].toLowerCase()+'</span>' : '')+
       (assets ? '<label class="btn sm fotobtn'+(p.url?' has':'')+'" for="rf_'+t.id+'">'+(p.url ? '<img class="pv" src="'+p.url+'" alt="Prévia da foto">Trocar' : CAM+'Foto')+'</label><input type="file" id="rf_'+t.id+'" data-rf="'+t.id+'" accept="image/*" capture="environment" hidden>' : '')+
       '<button class="btn sm pri" data-act="rsave" data-id="'+t.id+'"'+(p.saving||!assets?' disabled':'')+'>'+(p.saving ? 'Enviando…' : ehAdm() ? 'Salvar' : 'Enviar')+'</button></div></div>';
@@ -1639,6 +1653,7 @@ function vLeituras(){
     (assets ? '' : '<div class="banner red"><span>Sua conta não pode enviar fotos, então não pode registrar leituras. Peça ao ADM acesso de <b>Colaborador</b>.</span></div>')+
     prog+
     (tanks.length ? '<div class="ronda">'+rows+'</div>' : vazioMsg('Nenhum tanque cadastrado'+(fab?' nesta fábrica':'')+'.','tanques'))+
+    (tanks.some(ehPrincipal) ? '<p class="muted" style="margin:0;font-size:13px">GLP: no dia em que a Copa abastecer, marque <b>Teve abastecimento</b> no tanque principal, digite o % que ficou depois e os <b>kg que entraram</b> nele. O que sobrou da entrega o app lança sozinho para o tanque menor.</p>' : '')+
     '<section class="sec"><h2>Últimas leituras</h2>'+recHtml+'</section>';
 }
 
@@ -1724,6 +1739,18 @@ function grafConsumo(t, c){
     '<div class="clegend"><span><i class="sw" style="background:'+cor+'"></i>consumo no intervalo</span>'+(c.mediaRec!==null?'<span><i class="ln solid"></i>últimos '+JANELA+' dias: <b>'+nf(c.mediaRec,1)+' %/dia</b></span>':'')+(c.media!==null?'<span><i class="ln dash"></i>média geral: <b>'+nf(c.media,1)+' %/dia</b></span>':'')+'<span><i class="sw" style="background:var(--surface)"></i>abastecimento</span></div>'+
     '<p class="muted" style="margin:6px 0 0;font-size:12.5px">Cada barra é o intervalo entre duas leituras. Barras mais fortes são dos últimos '+JANELA+' dias. Intervalos em que o nível subiu contam como abastecimento e ficam fora da média.</p></div>';
 }
+function vAbastGLP(){
+  const ls = abastecimentos().filter(a => fabOk(a.t)).slice(0, 12);
+  if (!ls.length) return '<section class="sec"><h3>Abastecimentos divididos</h3><div class="empty">Quando a Copa abastecer, o responsável marca "Teve abastecimento" no tanque principal e informa os kg que entraram. A sobra da entrega aparece aqui como saldo do tanque menor.</div></section>';
+  return '<section class="sec"><div><h3>Abastecimentos divididos</h3><p class="muted" style="margin:4px 0 0;font-size:13px;max-width:70ch">Entrega do pedido − kg que entrou no tanque principal = sobra, lançada como saldo do tanque menor. O valor de cada parte sai do preço por kg do pedido.</p></div>'+
+    tabela([
+      {h:'Abastecimento', f:a => fdata(a.l.data)+'<div style="margin-top:3px">'+fchip(a.t.unidadeId)+'</div>'},
+      {h:'Entrega (pedido)', n:1, f:a => a.total !== null ? nf(a.total)+' kg<div class="muted" style="font-size:12px">pedido '+fdata(a.ped.data).slice(0,5)+'</div>' : '<span class="pill warn">sem pedido nessa data</span>'},
+      {h:'Tanque principal', n:1, f:a => '<b>'+nf(a.kg)+' kg</b><div class="muted" style="font-size:12px">'+esc(a.t.uso || '')+(a.valorPrin !== null ? ' · '+brl(a.valorPrin) : '')+'</div>'},
+      {h:'Sobra → saldo', n:1, f:a => a.sobra === null ? '—' : a.destinos.map(d => '<b>'+nf(d.kg)+' kg</b><div class="muted" style="font-size:12px">'+esc(d.t.uso || 'tanque menor')+(d.valor !== null ? ' · '+brl(d.valor) : '')+'</div>').join('')},
+      {h:'Situação', f:a => a.excesso ? '<span class="pill bad">kg maior que o pedido · conferir</span>' : a.naoBate ? '<span class="pill bad">não bate com o medidor</span><div class="muted" style="font-size:12px">pelo %, entraram ~'+nf(a.esperado)+' kg</div>' : a.total === null ? '<span class="pill warn">lance o pedido</span>' : '<span class="pill open">OK</span>'},
+    ], ls, a => a.excesso || a.naoBate ? 'late' : '')+'</section>';
+}
 function vDivisaoUso(tanks){
   const grupos = {};
   tanks.forEach(x => { const k = x.t.unidadeId+'|'+x.t.gasId; (grupos[k] ||= []).push(x); });
@@ -1733,7 +1760,7 @@ function vDivisaoUso(tanks){
     gs.map(g => { const todosCap = g.every(x => x.c.cap && x.c.ritmo !== null) && new Set(g.map(x => x.c.cap.u)).size === 1;
       const dia = x => todosCap ? x.c.ritmo/100*x.c.cap.v : null, tot = todosCap ? g.reduce((s,x) => s + dia(x), 0) : 0;
       return '<div class="panel"><div class="sec-h" style="gap:8px">'+fchip(g[0].t.unidadeId)+gchip(g[0].t.gasId)+'</div><div class="list">'+g.sort((a,b) => fracTanque(b.t) - fracTanque(a.t)).map(x =>
-        '<div class="pend"><div class="t"><b>'+esc(x.t.uso || x.t.codigo || 'Tanque sem uso informado')+'</b><div class="muted" style="font-size:12.5px">recebe '+nf(fracTanque(x.t)*100)+'% de cada entrega</div></div><div style="text-align:right"><b class="num">'+(x.c.ritmo === null ? '—' : todosCap ? nf(dia(x), dia(x) < 10 ? 1 : 0)+' '+x.c.cap.u+'/dia' : nf(x.c.ritmo,1)+' %/dia')+'</b>'+(todosCap && tot ? '<div class="muted" style="font-size:12.5px">'+nf(dia(x)/tot*100)+'% do consumo</div>' : '')+'</div></div>').join('')+'</div>'+
+        '<div class="pend"><div class="t"><b>'+esc(x.t.uso || x.t.codigo || 'Tanque sem uso informado')+'</b><div class="muted" style="font-size:12.5px">'+(function(){ const ab = abastecimentos().filter(a => a.t.unidadeId === x.t.unidadeId && a.t.gasId === x.t.gasId); const ult = ab[0]; if (!ult) return 'recebe ~'+nf(fracTanque(x.t)*100)+'% de cada entrega (estimado)'; const d = ult.t.id === x.t.id ? {kg:ult.kg} : ult.destinos.find(z => z.t.id === x.t.id); return d && d.kg !== null ? 'última entrega ('+fdata(ult.l.data).slice(0,5)+'): <b>'+nf(d.kg)+' kg</b>'+(ult.t.id === x.t.id ? '' : ' de sobra') : 'recebe ~'+nf(fracTanque(x.t)*100)+'% de cada entrega'; })()+'</div></div><div style="text-align:right"><b class="num">'+(x.c.ritmo === null ? '—' : todosCap ? nf(dia(x), dia(x) < 10 ? 1 : 0)+' '+x.c.cap.u+'/dia' : nf(x.c.ritmo,1)+' %/dia')+'</b>'+(todosCap && tot ? '<div class="muted" style="font-size:12.5px">'+nf(dia(x)/tot*100)+'% do consumo</div>' : '')+'</div></div>').join('')+'</div>'+
         (!todosCap ? '<p class="muted" style="margin:0;font-size:12.5px">Informe a capacidade dos tanques (ex.: 4.000 kg) para comparar em kg por dia.</p>' : '')+
         (g.some(x => !x.t.uso) && ehAdm() ? '<p class="muted" style="margin:0;font-size:12.5px">Dica: informe o uso de cada tanque em Tanques.</p>' : '')+'</div>'; }).join('')+'</div></section>';
 }
@@ -1766,7 +1793,7 @@ function vConsumo(){
     (subiu ? '<div class="banner red alerts" role="alert"><b>Atenção</b><ul><li>'+subiu+' '+plural(subiu,'tanque está','tanques estão')+' consumindo 10% ou mais acima da média anterior.</li></ul></div>' : '')+
     '<section class="sec"><div class="sec-h"><h3>Ritmo atual por tanque</h3><span class="sp"></span><span class="muted" style="font-size:12.5px">Barra: últimos '+JANELA+' dias · traço: média anterior. Toque para ver o gráfico.</span></div>'+resumo+
     (semDados.length ? '<p class="muted" style="margin:0;font-size:13px">Sem leituras suficientes: '+semDados.map(x => esc(nomeGas(x.t.gasId)+' '+nomeUni(x.t.unidadeId)+(x.t.uso ? ' · '+x.t.uso : ''))).join(', ')+'.</p>' : '')+'</section>'+
-    vDivisaoUso(tanks)+detalhe;
+    vDivisaoUso(tanks)+(ehAdm() ? vAbastGLP() : '')+detalhe;
 }
 
 
@@ -1807,7 +1834,7 @@ const meusItens = () => S.itens.filter(i => i._uid === meuId);
 function derivar(){
   const aprov = S.itens.filter(i => i.tipo === 'leitura' && statusItem(i) === 'aprovado').map(i => {
     const a = byId('aprovacoes', chaveAprov(i));
-    return {id:'op~'+chaveAprov(i), tanqueId:i.tanqueId, nivel:vazio(a.nivel) ? '' : Number(a.nivel), nivelPol:vazio(i.nivelPol) ? '' : Number(i.nivelPol), data:i.data, fotoId:a.fotoId, obs:i.obs||'', autor:i._uid, _op:true};
+    return {id:'op~'+chaveAprov(i), tanqueId:i.tanqueId, nivel:vazio(a.nivel) ? '' : Number(a.nivel), nivelPol:vazio(i.nivelPol) ? '' : Number(i.nivelPol), data:i.data, fotoId:a.fotoId, obs:i.obs||'', abastKg: vazio(i.abastKg) ? '' : Number(i.abastKg), autor:i._uid, _op:true};
   });
   const tq = id => S._tanques.find(x => x.id === id);
   const norm = l => { const t = tq(l.tanqueId); if (!t || vazio(l.nivelPol) || !ehPol(t)) return l; const p = pctDe(t, l); return {...l, nivel: p === null ? '' : p}; };
@@ -1877,6 +1904,7 @@ function vCentral(){
       '<div class="big2"><b class="num"'+(n !== null && n<30?' style="color:var(--red-ink)"':'')+'>'+(t ? txtNivel(t, i) : nf(i.nivel)+'%')+'</b>'+(ant ? '<span class="muted">antes: '+(t ? txtNivel(t, ant) : nf(ant.nivel)+'%')+' em '+fdata(ant.data)+'</span>' : '<span class="muted">primeira leitura deste tanque</span>')+'</div>'+
       (alertas.length ? '<ul class="avs">'+alertas.map(a => '<li>'+esc(a)+'</li>').join('')+'</ul>' : '')+
       (i.obs ? '<p class="obs">'+esc(i.obs)+'</p>' : '')+
+      (!vazio(i.abastKg) ? '<div class="avs2">Abastecimento: entraram <b>'+nf(i.abastKg)+' kg</b> neste tanque.'+(function(){ const a = calcAbast({tanqueId:i.tanqueId, data:i.data, abastKg:i.abastKg}); return a && a.sobra !== null ? ' Sobra da entrega para '+esc(a.destinos.map(d => d.t.uso || 'tanque menor').join(' e '))+': <b>'+nf(a.sobra)+' kg</b>.' : ''; })()+'</div>' : '')+
       '<div class="muted meta">Enviado por <b>'+esc(pessoa(i._uid))+'</b> · '+fdh(i.criadoEm)+' · leitura de '+fdata(i.data)+'</div>'+
       '<div class="tools"><button class="btn pri" data-act="aprovar" data-uid="'+esc(i._uid)+'" data-id="'+esc(i.id)+'">Aprovar</button><button class="btn" data-act="rejeitar" data-uid="'+esc(i._uid)+'" data-id="'+esc(i.id)+'">Rejeitar</button></div></div></div>';
   };
@@ -1886,6 +1914,7 @@ function vCentral(){
       '<a class="ph" href="'+blobSrc(i.fotoId)+'" target="_blank" rel="noopener"><img src="'+blobSrc(i.fotoId)+'" alt="Foto do aviso" loading="lazy"></a>'+
       '<div class="bd"><div class="ln"><span class="pill warn">'+esc(CAT_TXT[i.categoria]||'Aviso')+'</span>'+(i.unidadeId ? fchip(i.unidadeId) : '')+(t ? gchip(t.gasId)+'<span class="mono muted">'+esc(tqRot(t))+'</span>' : '')+'</div>'+
       '<p class="obs" style="font-size:15px;color:var(--fg)">'+esc(i.texto||'')+'</p>'+
+      (!vazio(i.abastKg) ? '<div class="avs2">Abastecimento: entraram <b>'+nf(i.abastKg)+' kg</b> neste tanque.'+(function(){ const a = calcAbast({tanqueId:i.tanqueId, data:i.data, abastKg:i.abastKg}); return a && a.sobra !== null ? ' Sobra da entrega para '+esc(a.destinos.map(d => d.t.uso || 'tanque menor').join(' e '))+': <b>'+nf(a.sobra)+' kg</b>.' : ''; })()+'</div>' : '')+
       '<div class="muted meta">Enviado por <b>'+esc(pessoa(i._uid))+'</b> · '+fdh(i.criadoEm)+'</div>'+
       '<div class="tools"><button class="btn pri" data-act="visto" data-uid="'+esc(i._uid)+'" data-id="'+esc(i.id)+'">Marcar como visto</button></div></div></div>';
   };
@@ -2046,6 +2075,30 @@ function fracTanque(t){
   const resto = Math.max(0, 100 - soma), faltam = ir.length - def.length;
   return faltam ? resto/faltam/100 : 0;
 }
+const ehPrincipal = t => { const ir = irmaos(t); if (ir.length <= 1) return false; const f = fracTanque(t); return ir.every(x => x.id === t.id || fracTanque(x) < f || (fracTanque(x) === f && x.id > t.id)); };
+/* Abastecimento de GLP: kg que entrou no tanque principal; a sobra da entrega vai para o(s) tanque(s) menor(es) */
+function pedidoDaEntrega(gasId, unidadeId, data){
+  const ini = addDias(data, -6), fim = addDias(data, 3);
+  return S.pedidos.filter(p => p.gasId === gasId && p.unidadeId === unidadeId && (p.dataEntrega || p.data) >= ini && (p.dataEntrega || p.data) <= fim)
+    .sort((a,b) => Math.abs(diff(a.dataEntrega||a.data, data)) - Math.abs(diff(b.dataEntrega||b.data, data)))[0] || null;
+}
+function calcAbast(l){
+  const t = byId('tanques', l.tanqueId); if (!t || vazio(l.abastKg)) return null;
+  const kg = Number(l.abastKg), ped = pedidoDaEntrega(t.gasId, t.unidadeId, l.data);
+  const total = ped && !vazio(ped.quantidade) ? Number(ped.quantidade) : null;
+  const outros = irmaos(t).filter(x => x.id !== t.id);
+  const sobra = total !== null ? Math.max(0, total - kg) : null;
+  const somaF = outros.reduce((s,x) => s + fracTanque(x), 0) || 1;
+  const preco = ped && total && !vazio(ped.valor) ? Number(ped.valor)/total : null;
+  const destinos = outros.map(x => { const k = sobra === null ? null : sobra * fracTanque(x)/somaF; return {t:x, kg:k, valor: k !== null && preco !== null ? k*preco : null}; });
+  let ant = null; for (const x of S.leituras) if (x.tanqueId === t.id && x.data && x.data < l.data && !vazio(x.nivel) && (!ant || x.data > ant.data)) ant = x;
+  const cap = parseCap(t.capacidade), depois = vazio(l.nivel) ? null : Number(l.nivel);
+  const esperado = cap && cap.u === 'kg' && ant && depois !== null && depois > Number(ant.nivel) ? (depois - Number(ant.nivel))/100*cap.v : null;
+  const naoBate = esperado !== null && Math.abs(esperado - kg) > Math.max(0.15*kg, 30);
+  return {l, t, ped, total, kg, sobra, destinos, preco, valorPrin: preco !== null ? kg*preco : null, excesso: total !== null && kg > total, esperado, naoBate};
+}
+const abastecimentos = () => S.leituras.filter(l => !vazio(l.abastKg)).map(calcAbast).filter(Boolean).sort((a,b) => (b.l.data||'').localeCompare(a.l.data||''));
+const abastDoPedido = p => abastecimentos().find(a => a.ped && a.ped.id === p.id) || null;
 const divisaoPedido = p => { const ts = S.tanques.filter(t => t.gasId === p.gasId && t.unidadeId === p.unidadeId); return ts.length > 1 ? ts.map(t => ({t, f: fracTanque(t)})).sort((a,b) => b.f - a.f) : []; };
 
 /* ---------- CALENDÁRIO DE COMPRAS ---------- */
@@ -2127,9 +2180,15 @@ function vCalendario(){
 
 
 function divisaoTxt(p){
+  const ab = abastDoPedido(p);
+  if (ab && ab.sobra !== null){
+    const med = esc(medidaTxt((byId('gases',p.gasId)||{}).medida) || 'kg');
+    return '<div class="divped"><span class="pill open" style="align-self:flex-end">divisão real</span><span><b>'+esc(ab.t.uso || 'Principal')+'</b> '+nf(ab.kg)+' '+med+(ab.valorPrin !== null ? ' · '+brl(ab.valorPrin) : '')+'</span>'+
+      ab.destinos.map(d => '<span><b>'+esc(d.t.uso || 'Tanque menor')+'</b> '+nf(d.kg)+' '+med+(d.valor !== null ? ' · '+brl(d.valor) : '')+'</span>').join('')+'</div>';
+  }
   const d = divisaoPedido(p); if (!d.length) return '';
   const q = Number(p.quantidade), v = Number(p.valor);
-  return '<div class="divped">'+d.map(x => '<span><b>'+esc(x.t.uso || x.t.codigo || 'tanque')+'</b> '+nf(x.f*100)+'%'+(q > 0 ? ' · '+nf(q*x.f)+' '+esc(medidaTxt((byId('gases',p.gasId)||{}).medida)) : '')+(v > 0 ? ' · '+brl(v*x.f) : '')+'</span>').join('')+'</div>';
+  return '<div class="divped"><span class="muted" style="font-size:11px">estimado, até lançarem os kg</span>'+d.map(x => '<span><b>'+esc(x.t.uso || x.t.codigo || 'tanque')+'</b> '+nf(x.f*100)+'%'+(q > 0 ? ' · '+nf(q*x.f)+' '+esc(medidaTxt((byId('gases',p.gasId)||{}).medida)) : '')+(v > 0 ? ' · '+brl(v*x.f) : '')+'</span>').join('')+'</div>';
 }
 /* ---------- PEDIDO -> PAGAMENTO E PREÇO (automático) ---------- */
 /* Pedido com valor e data de pagamento lança o pagamento na conta corrente do fornecedor;
@@ -2834,7 +2893,7 @@ function render(){
     if (papel === 'adm' && (loaded.size < COLS.length || !regLoaded)) return;
     if (papel === 'op' && (!visaoLoaded || !regLoaded)) return;
     const ae = document.activeElement;
-    if (ae && ae.dataset && (ae.dataset.rn || ae.dataset.av || ae.dataset.usr)){ adiado = true; return; }
+    if (ae && ae.dataset && (ae.dataset.rn || ae.dataset.rk || ae.dataset.av || ae.dataset.usr)){ adiado = true; return; }
     adiado = false;
     const v = $('#view');
     const fechado = foraDoHorario(); ultimoFechado = fechado;
@@ -3154,6 +3213,8 @@ document.addEventListener('input', e => {
   if (t.dataset && t.dataset.av){ avDraft[t.dataset.av] = t.value; }
   if (t.dataset && t.dataset.usr){ usrDraft[t.dataset.usr] = t.value; }
   if (t.dataset && t.dataset.rn){ (pendL[t.dataset.rn] ||= {}).nivel = t.value; }
+  if (t.dataset && t.dataset.rk){ (pendL[t.dataset.rk] ||= {}).kg = t.value; }
+  if (t.dataset && t.dataset.ra){ (pendL[t.dataset.ra] ||= {}).abast = t.checked; render(); }
 });
 document.addEventListener('change', async e => {
   const t = e.target;
@@ -3277,7 +3338,7 @@ function membros(){
 function montarVisao(fid){
   const u = fid && byId('unidades', fid);
   if (!u) return {fabricaId:''};
-  const tanques = S.tanques.filter(t => t.unidadeId === fid).map(t => ({id:t.id, gasId:t.gasId, unidadeId:t.unidadeId, codigo:t.codigo||'', uso:t.uso||'', capacidade:t.capacidade||'', modelo:t.modelo||'', nivel:vazio(t.nivel)?'':Number(t.nivel), nivelPol:vazio(t.nivelPol)?'':Number(t.nivelPol), unidadeLeitura:t.unidadeLeitura||'', polCheio:vazio(t.polCheio)?'':Number(t.polCheio), tabelaPol:t.tabelaPol||'', ultimaLeitura:t.ultimaLeitura||'', fotoId:t.fotoId||'', exemplo:!!t.exemplo}));
+  const tanques = S.tanques.filter(t => t.unidadeId === fid).map(t => ({id:t.id, gasId:t.gasId, unidadeId:t.unidadeId, codigo:t.codigo||'', uso:t.uso||'', parteAbastecimento:vazio(t.parteAbastecimento)?'':Number(t.parteAbastecimento), capacidade:t.capacidade||'', modelo:t.modelo||'', nivel:vazio(t.nivel)?'':Number(t.nivel), nivelPol:vazio(t.nivelPol)?'':Number(t.nivelPol), unidadeLeitura:t.unidadeLeitura||'', polCheio:vazio(t.polCheio)?'':Number(t.polCheio), tabelaPol:t.tabelaPol||'', ultimaLeitura:t.ultimaLeitura||'', fotoId:t.fotoId||'', exemplo:!!t.exemplo}));
   const ids = new Set(tanques.map(t => t.id));
   const gids = new Set(tanques.map(t => t.gasId).concat(S.usos.filter(x => x.unidadeId === fid).map(x => x.gasId)));
   const gases = S.gases.filter(g => gids.has(g.id)).map(g => ({id:g.id, nome:g.nome, medida:g.medida||''}));
